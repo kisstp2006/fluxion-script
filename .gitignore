@@ -30,9 +30,11 @@ zig-pkg/
 *.wasm
 
 # What a run that ended badly leaves behind. Large, machine-specific, and
-# worth nothing once the bug it came from is fixed.
-core
-core.*
+# worth nothing once the bug it came from is fixed. A dump is `core`, or
+# `core.` and the number of the process that dumped: not `core.*`, which is
+# also src/lib/core.zig.
+/core
+core.[0-9]*
 *.stackdump
 vgcore.*
 
