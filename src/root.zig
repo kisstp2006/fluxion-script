@@ -28,10 +28,23 @@ pub const os = @import("lib/os.zig");
 pub const bind = @import("bind.zig");
 pub const FileLoader = @import("api.zig").FileLoader;
 
+/// A script's structs, from the host: `vm.instantiate`, `vm.callMethod` and
+/// `vm.connectSignal` and the rest on `Vm`, and these, which need none.
+pub const Member = @import("api.zig").Member;
+pub const HostValue = @import("api.zig").HostValue;
+pub const Resolver = object.Resolver;
+pub const classOf = @import("api.zig").classOf;
+pub const methodsOf = @import("api.zig").methodsOf;
+pub const signalsOf = @import("api.zig").signalsOf;
+
 /// What an editor asks about code being written: highlighting, hovers,
 /// completions, where names are declared. `flux lsp` serves it to editors.
 pub const service = @import("service.zig");
 pub const lsp = @import("lsp.zig");
+
+/// A code editor's model over the service, for an interface to draw;
+/// `fluxion_script_ui` draws it with fluxion-ui.
+pub const edit = @import("edit.zig");
 
 /// The C API of `include/fluxion_script.h`. Its functions are exported, so
 /// a program with C beside it writes `comptime { _ = flux.c; }`.
@@ -53,10 +66,12 @@ test {
     _ = @import("compile/scan.zig");
     _ = @import("run_test.zig");
     _ = @import("reload_test.zig");
+    _ = @import("host_test.zig");
     _ = @import("bind.zig");
     _ = os;
     _ = @import("reflect_test.zig");
     _ = service;
     _ = @import("service/complete.zig");
     _ = lsp;
+    _ = edit;
 }

@@ -91,7 +91,15 @@ pub fn build(b: *std.Build) void {
         .windows, .linux, .macos => true,
         else => false,
     };
-    if (b.pkg_hash.len == 0 and desktop) ide(b, target, optimize, mod, examples, test_step);
+    // The code editor's view on fluxion-ui, `fluxion_script_ui`: when this is
+    // the package being built, or when a dependant asks for it with
+    // `.ui = true`. Nobody else fetches fluxion-ui for it.
+    const ui_wanted = b.option(bool, "ui", "Make fluxion_script_ui, the code editor's view on fluxion-ui") orelse (b.pkg_hash.len == 0);
+    const ui_mod = if (ui_wanted) uiModule(b, target, optimize, mod) else null;
+    if (b.pkg_hash.len == 0) if (ui_mod) |m| {
+        test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .name = "fluxion-script-ui-tests", .root_module = m })).step);
+    };
+    if (b.pkg_hash.len == 0 and desktop) if (ui_mod) |m| ide(b, target, optimize, mod, m, examples, test_step);
     const suite = b.addTest(.{ .name = "fluxion-script-tests", .root_module = mod });
     test_step.dependOn(&b.addRunArtifact(suite).step);
 
@@ -128,7 +136,22 @@ pub fn build(b: *std.Build) void {
 /// the language service under it. Its four packages are lazy, and all four
 /// are asked for before any is used, so a clean checkout fetches them in one
 /// go; until they are here the step is left out.
-fn ide(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mod: *std.Build.Module, examples: *std.Build.Step, test_step: *std.Build.Step) void {
+/// `fluxion_script_ui`: `flux.edit` drawn with fluxion-ui. Null until
+/// fluxion-ui is fetched.
+fn uiModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mod: *std.Build.Module) ?*std.Build.Module {
+    const ui = b.lazyDependency("fluxion_ui", .{ .target = target, .optimize = optimize }) orelse return null;
+    return b.addModule("fluxion_script_ui", .{
+        .root_source_file = b.path("src/ui/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "fluxion_script", .module = mod },
+            .{ .name = "fluxion_ui", .module = ui.module("fluxion_ui") },
+        },
+    });
+}
+
+fn ide(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mod: *std.Build.Module, ui_mod: *std.Build.Module, examples: *std.Build.Step, test_step: *std.Build.Step) void {
     const ui = b.lazyDependency("fluxion_ui", .{ .target = target, .optimize = optimize });
     const platform = b.lazyDependency("fluxion_platform", .{ .target = target, .optimize = optimize });
     const rhi = b.lazyDependency("fluxion_rhi", .{ .target = target, .optimize = optimize });
@@ -143,6 +166,7 @@ fn ide(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Op
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "fluxion_script", .module = mod },
+                .{ .name = "fluxion_script_ui", .module = ui_mod },
                 .{ .name = "fluxion_ui", .module = ui.?.module("fluxion_ui") },
                 .{ .name = "fluxion_ui_rhi", .module = ui.?.module("fluxion_ui_rhi") },
                 .{ .name = "fluxion_platform", .module = platform.?.module("fluxion_platform") },

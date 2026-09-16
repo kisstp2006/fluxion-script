@@ -15,7 +15,8 @@ const call_mod = @import("vm/call.zig");
 const panic_mod = @import("vm/panic.zig");
 const Compiler = @import("compile/Compiler.zig");
 const bind = @import("bind.zig");
-const native = @import("lib/native.zig");
+const native_lib = @import("lib/native.zig");
+const signal_lib = @import("lib/signal.zig");
 const reload_mod = @import("reload.zig");
 
 pub const CompileError = error{ CompileFailed, OutOfMemory };
@@ -83,6 +84,224 @@ pub fn update(vm: *Vm, dt: f64) Vm.Error!void {
     return call_mod.update(vm, dt);
 }
 
+// ---------------------------------------------------------------------------
+// A script's structs, from the host: what an engine needs to put a script on
+// an entity, call into it, and wire its signals.
+
+/// A method or a signal a struct declares, as a host sees it.
+pub const Member = struct {
+    name: []const u8,
+    /// Its parameters, not counting `self`.
+    params: u8,
+    /// The parameters as written, `by: ?Actor, damage: int`; an untyped one
+    /// is its name alone.
+    signature: []const u8,
+    doc: ?[]const u8,
+};
+
+/// A member every struct's instances have without declaring it: what a
+/// script reaches as `self.name`, an engine's `self.entity`. Scripts read it
+/// and cannot assign it; `instantiate` sets it, and an instance a script
+/// makes has it null. Declare it before compiling the scripts that use it,
+/// on every VM that compiles them - an editor's analysis too, so completions
+/// know it.
+pub fn declareHostMember(vm: *Vm, name: []const u8, doc: ?[]const u8) Allocator.Error!void {
+    for (vm.host_members.items) |m| if (std.mem.eql(u8, m.name, name)) return;
+    const owned = try vm.gpa.dupe(u8, name);
+    errdefer vm.gpa.free(owned);
+    const text = if (doc) |d| try vm.gpa.dupe(u8, d) else null;
+    errdefer if (text) |t| vm.gpa.free(t);
+    try vm.host_members.append(vm.gpa, .{ .name = owned, .doc = text });
+}
+
+/// A value every module sees as `name` without importing anything: an
+/// engine's `app`. It is compiled into the scripts that use it, so define it
+/// before compiling them; `doc` is what an editor shows for it.
+pub fn defineGlobal(vm: *Vm, name: []const u8, v: Value, doc: ?[]const u8) Allocator.Error!void {
+    vm.heap.paused += 1;
+    defer vm.heap.paused -= 1;
+    try vm.prelude.put(vm.gpa, try vm.intern(name), v);
+    const text = try vm.gpa.dupe(u8, doc orelse "given by the host");
+    errdefer vm.gpa.free(text);
+    const gop = try vm.host_docs.getOrPut(vm.gpa, name);
+    if (gop.found_existing) {
+        vm.gpa.free(gop.value_ptr.*);
+    } else {
+        gop.key_ptr.* = vm.gpa.dupe(u8, name) catch |err| {
+            vm.host_docs.removeByPtr(gop.key_ptr);
+            return err;
+        };
+    }
+    gop.value_ptr.* = text;
+}
+
+/// A host member's value, for `instantiate`.
+pub const HostValue = struct { name: []const u8, value: Value };
+
+/// A new instance of a struct - `class` as `get` gives it - with its host
+/// members set from `host`, its defaults run and its signals made, as
+/// `Name{}` makes one in a script. Hold it with `vm.hold` while the host
+/// keeps it.
+pub fn instantiate(vm: *Vm, class: Value, host: []const HostValue) Vm.Error!Value {
+    if (class.tag != .class) return vm.fail("an instance is made of a struct, and this is {s}", .{@import("vm/types.zig").typeName(class)});
+    const c = class.as(object.Class);
+    // The host's values live where the collector does not look, and making
+    // the instance can collect.
+    var rooted: usize = 0;
+    defer for (0..rooted) |_| vm.popRoot();
+    for (host) |h| {
+        try vm.pushRoot(h.value);
+        rooted += 1;
+    }
+    const inst = try make.instance(vm, c);
+    const v: Value = .fromObj(.instance, &inst.obj);
+    try vm.pushRoot(v);
+    rooted += 1;
+    for (host) |h| {
+        const key = vm.interned.find(h.name, @import("vm/strings.zig").hashBytes(h.name));
+        const slot = if (key) |k| c.slots.get(k) else null;
+        if (slot == null or !c.fields[slot.?].host) return vm.fail("`{s}` is not a member the host declared", .{h.name});
+        inst.fields()[slot.?] = h.value;
+    }
+    if (c.has_signals) try signal_lib.fill(vm, inst);
+    if (c.defaults != null or c.parent != null) try call_mod.initDefaults(vm, v);
+    return v;
+}
+
+/// The struct `instance` was made of, as `get` gives a struct.
+pub fn classOf(instance: Value) ?Value {
+    if (instance.tag != .instance) return null;
+    return .fromObj(.class, &instance.as(object.Instance).class.obj);
+}
+
+/// The methods a struct has, the ones it declares first and then each
+/// parent's, every group in the order written; an override is listed once,
+/// with the struct that wrote it. As many as fit in `into`.
+pub fn methodsOf(class: Value, into: []Member) []Member {
+    if (class.tag != .class) return into[0..0];
+    var n: usize = 0;
+    var at: ?*const object.Class = class.as(object.Class);
+    while (at) |c| : (at = c.parent) {
+        // Picked by place in the file, so no allocation is needed to sort.
+        var after: ?u32 = null;
+        while (n < into.len) {
+            var best: ?struct { at: u32, name: *object.String, proto: *object.Proto } = null;
+            var it = c.methods.iterator();
+            while (it.next()) |e| {
+                if (e.value_ptr.tag != .function) continue;
+                const p = e.value_ptr.as(object.Closure).proto;
+                if (after) |a| if (p.decl.start <= a) continue;
+                if (best) |b| if (b.at <= p.decl.start) continue;
+                if (listed(into[0..n], e.key_ptr.*.bytes())) continue;
+                best = .{ .at = p.decl.start, .name = e.key_ptr.*, .proto = p };
+            }
+            const b = best orelse break;
+            after = b.at;
+            into[n] = .{ .name = b.name.bytes(), .params = b.proto.params - @intFromBool(b.proto.has_self), .signature = b.proto.signature orelse "", .doc = b.proto.doc };
+            n += 1;
+        }
+    }
+    return into[0..n];
+}
+
+fn listed(members: []const Member, name: []const u8) bool {
+    for (members) |m| if (std.mem.eql(u8, m.name, name)) return true;
+    return false;
+}
+
+/// The signals a struct has, the ones it declares first and then each
+/// parent's, in the order written. As many as fit in `into`.
+pub fn signalsOf(class: Value, into: []Member) []Member {
+    if (class.tag != .class) return into[0..0];
+    var n: usize = 0;
+    var at: ?*const object.Class = class.as(object.Class);
+    while (at) |c| : (at = c.parent) {
+        const inherited = if (c.parent) |p| p.fields.len else 0;
+        for (c.fields[inherited..]) |f| {
+            if (!f.is_signal) continue;
+            if (n == into.len) return into;
+            into[n] = .{ .name = f.name.bytes(), .params = @intCast(f.default.asInt()), .signature = f.signature orelse "", .doc = f.doc };
+            n += 1;
+        }
+    }
+    return into[0..n];
+}
+
+/// The method `name` of a struct or one it extends; null when there is
+/// none. Call it with the instance first - `vm.call(m, &.{ instance, dt })`
+/// - and look it up again after a reload.
+pub fn methodNamed(vm: *Vm, class: Value, name: []const u8) ?Value {
+    if (class.tag != .class) return null;
+    const key = vm.interned.find(name, @import("vm/strings.zig").hashBytes(name)) orelse return null;
+    return class.as(object.Class).method(key);
+}
+
+pub fn hasMethod(vm: *Vm, class: Value, name: []const u8) bool {
+    return methodNamed(vm, class, name) != null;
+}
+
+/// Calls the method `name` on `instance`.
+pub fn callMethod(vm: *Vm, instance: Value, name: []const u8, args: []const Value) Vm.Error!Value {
+    const class = classOf(instance) orelse return vm.fail("a method is called on an instance, and this is {s}", .{@import("vm/types.zig").typeName(instance)});
+    const m = methodNamed(vm, class, name) orelse return vm.fail("`{s}` has no method `{s}`", .{ instance.as(object.Instance).class.name.bytes(), name });
+    const at = try vm.fiber.free(vm.gpa, args.len + 1);
+    at[0] = instance;
+    @memcpy(at[1 .. args.len + 1], args);
+    return call(vm, m, at[0 .. args.len + 1]);
+}
+
+fn signalNamed(vm: *Vm, instance: Value, name: []const u8) Vm.Error!*object.Signal {
+    if (instance.tag != .instance) return vm.fail("a signal belongs to an instance, and this is {s}", .{@import("vm/types.zig").typeName(instance)});
+    const inst = instance.as(object.Instance);
+    const key = vm.interned.find(name, @import("vm/strings.zig").hashBytes(name));
+    if (key) |k| if (inst.class.slots.get(k)) |slot| if (inst.class.fields[slot].is_signal) {
+        const v = inst.fields()[slot];
+        if (v.tag == .signal) return v.as(object.Signal);
+    };
+    return vm.fail("`{s}` has no signal `{s}`", .{ inst.class.name.bytes(), name });
+}
+
+/// Calls `target` - a function, a method, or what `native` makes - each
+/// time `instance`'s signal `name` is emitted.
+pub fn connectSignal(vm: *Vm, instance: Value, name: []const u8, target: Value) Vm.Error!void {
+    switch (target.tag) {
+        .function, .native, .method => {},
+        else => return vm.fail("a signal is connected to a function, and this is {s}", .{@import("vm/types.zig").typeName(target)}),
+    }
+    try signal_lib.connectTo(vm, try signalNamed(vm, instance, name), target, false);
+}
+
+/// Whether `target` was connected to the signal, and is not any more.
+pub fn disconnectSignal(vm: *Vm, instance: Value, name: []const u8, target: Value) Vm.Error!bool {
+    return signal_lib.disconnectFrom(try signalNamed(vm, instance, name), target);
+}
+
+/// Emits `instance`'s signal `name` with `args`, as `self.name.emit(...)`
+/// does in the script.
+pub fn emitSignal(vm: *Vm, instance: Value, name: []const u8, args: []const Value) Vm.Error!void {
+    const s = try signalNamed(vm, instance, name);
+    if (args.len != s.params) return vm.fail("signal `{s}` takes {d} argument{s}, and was given {d}", .{ name, s.params, if (s.params == 1) "" else "s", args.len });
+    // The instance and the arguments live where the collector does not look.
+    var rooted: usize = 0;
+    defer for (0..rooted) |_| vm.popRoot();
+    try vm.pushRoot(instance);
+    rooted += 1;
+    for (args) |a| {
+        try vm.pushRoot(a);
+        rooted += 1;
+    }
+    try signal_lib.emitOn(vm, s, args);
+}
+
+/// A Zig function as a value: something a signal can be connected to, or a
+/// script handed. The native finds `user` again in `vm.current_native.?.user`.
+/// `name` is not copied.
+pub fn native(vm: *Vm, name: []const u8, func: object.NativeFn, min: u8, max: ?u8, user: ?*anyopaque) Allocator.Error!Value {
+    const n = try make.native(vm, name, func, min, max);
+    n.user = user;
+    return .fromObj(.native, &n.obj);
+}
+
 pub fn writeDiagnostics(vm: *Vm, w: *std.Io.Writer, options: diag.render.Options) std.Io.Writer.Error!void {
     return diag.render.all(w, &vm.sources, &vm.diagnostics, options);
 }
@@ -95,7 +314,7 @@ pub fn writePanic(vm: *Vm, w: *std.Io.Writer, options: diag.render.Options) std.
 
 /// A function every module can call without importing anything.
 pub fn define(vm: *Vm, name: []const u8, func: object.NativeFn, min: u8, max: ?u8) Allocator.Error!void {
-    return native.define(vm, name, func, min, max);
+    return native_lib.define(vm, name, func, min, max);
 }
 
 /// Any Zig function as one every module can call: `vm.defineFn("hp", hp)`.
@@ -117,15 +336,29 @@ pub fn defineModule(vm: *Vm, name: []const u8, comptime members: anytype) Alloca
         const x = @field(members, field.name);
         if (@typeInfo(@TypeOf(x)) == .@"fn") {
             const n = bind.arity(x);
-            try native.function(vm, m, field.name, bind.wrap(x), n, n);
+            try native_lib.function(vm, m, field.name, bind.wrap(x), n, n);
         } else {
-            try native.member(vm, m, field.name, bind.toValue(vm, x) catch return error.OutOfMemory);
+            try native_lib.member(vm, m, field.name, bind.toValue(vm, x) catch return error.OutOfMemory);
         }
     }
     const key = try vm.gpa.dupe(u8, name);
     const old = try vm.native_modules.fetchPut(vm.gpa, key, m);
     if (old) |o| vm.gpa.free(o.key);
     return m;
+}
+
+/// A handle on a value only known at run time as a `fluxion_reflect.Value`
+/// - a component found by name. The host keeps what it points at alive.
+pub fn handleOf(vm: *Vm, v: @import("fluxion_reflect").Value) Vm.Error!Value {
+    return @import("reflect.zig").handleOf(vm, v, .null);
+}
+
+/// A handle on a value the host finds again at each use - a component that
+/// moves with its storage. `resolver` says where it is now, by `key` and
+/// type; it outlives the handle. When it is gone, a script using the handle
+/// stops with a panic saying `resolver.why`.
+pub fn liveHandle(vm: *Vm, resolver: *const object.Resolver, key: u64, t: *const @import("fluxion_reflect").Type) Vm.Error!Value {
+    return @import("reflect.zig").liveHandle(vm, resolver, key, t);
 }
 
 /// A Zig value as a Flux value, the way natives' results are converted.
@@ -139,9 +372,38 @@ pub fn handle(vm: *Vm, pointer: anytype) Vm.Error!Value {
     return @import("reflect.zig").handle(vm, pointer);
 }
 
+/// A value the host has only as a `fluxion_reflect.Value` - an argument of
+/// an engine's signal - as a script's own: converted as a native's result
+/// is, and what is not a number, a string or a vector copied into a handle
+/// the collector owns, so the host's memory can go right after.
+pub fn valueOf(vm: *Vm, v: @import("fluxion_reflect").Value) Vm.Error!Value {
+    return @import("reflect.zig").valueOf(vm, v);
+}
+
+/// What a handle stands for now, for the host - the reverse of `valueOf`: a
+/// live handle looked up again, one reached through another through its
+/// owner. Null for a value that is not a handle, and for one whose value is
+/// gone.
+pub fn reflectOf(_: *Vm, v: Value) ?@import("fluxion_reflect").Value {
+    if (v.tag != .handle) return null;
+    return @import("reflect.zig").current(v.as(object.Handle));
+}
+
 /// A new `T`, owned by the script that gets it.
 pub fn newHandle(vm: *Vm, comptime T: type) Vm.Error!Value {
     return @import("reflect.zig").create(vm, T);
+}
+
+/// A handle on memory the host made with `vm.gpa` - `vm.gpa.create(T)` -
+/// that the collector frees with the handle, once no script can reach it:
+/// for a value a script may keep after the host is done with it. On an
+/// error the memory is still the host's.
+pub fn adoptHandle(vm: *Vm, pointer: anytype) Vm.Error!Value {
+    const T = @typeInfo(@TypeOf(pointer)).pointer.child;
+    if (@sizeOf(T) == 0) @compileError("adoptHandle: a " ++ @typeName(T) ++ " has no memory to free");
+    const v = try handle(vm, pointer);
+    v.as(object.Handle).owned = true;
+    return v;
 }
 
 /// Loads imports from files: `@import("enemy.flux")` next to the file

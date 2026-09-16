@@ -9,10 +9,12 @@ const std = @import("std");
 const ui_lib = @import("fluxion_ui");
 const flux = @import("fluxion_script");
 const service = flux.service;
-const Editor = @import("Editor.zig");
+const Code = flux.edit.Code;
 const Runner = @import("Runner.zig");
-const view = @import("view.zig");
 const theme = @import("theme.zig");
+
+/// The code, drawn by the language's own view in its own colours.
+pub const code_view: @import("fluxion_script_ui").View = .{ .theme = theme.code };
 
 const Ui = ui_lib.Ui;
 const Color = ui_lib.Color;
@@ -36,12 +38,12 @@ pub const State = struct {
     dragging: bool = false,
 };
 
-fn style(ed: *const Editor, color: Color) ui_lib.TextStyle {
+fn style(ed: *const Code, color: Color) ui_lib.TextStyle {
     return .{ .color = color, .font_size = ed.metrics.font_size, .wrap = .none, .line_height = @intFromFloat(ed.metrics.line_height) };
 }
 
 /// A button with a label: true on the frame the mouse is let go on it.
-fn button(ui: *Ui, ed: *const Editor, id: []const u8, label: []const u8, color: Color) bool {
+fn button(ui: *Ui, ed: *const Code, id: []const u8, label: []const u8, color: Color) bool {
     const lit = ui.isPointerOver(id);
     const down = ui.isElementPressed(id);
     ui.open(.{
@@ -57,7 +59,7 @@ fn button(ui: *Ui, ed: *const Editor, id: []const u8, label: []const u8, color: 
 }
 
 /// The whole window. `focused` is whether it has the keyboard.
-pub fn shell(ui: *Ui, ed: *Editor, runner: *Runner, state: *State, focused: bool) Action {
+pub fn shell(ui: *Ui, ed: *Code, runner: *Runner, state: *State, focused: bool) Action {
     var action: Action = .none;
     ui.open(.{ .width = .grow, .height = .grow, .direction = .top_to_bottom, .background_color = theme.window });
     defer ui.close();
@@ -85,7 +87,7 @@ pub fn shell(ui: *Ui, ed: *Editor, runner: *Runner, state: *State, focused: bool
         defer ui.close();
         if (members(ui, ed)) |at| action = .{ .jump = at };
         ui.empty(.{ .width = .fixed(1), .height = .grow, .background_color = theme.border });
-        view.draw(ed, ui, focused);
+        code_view.draw(ed, ui, focused);
     }
 
     // The edge the panel is resized by.
@@ -138,7 +140,7 @@ pub fn shell(ui: *Ui, ed: *Editor, runner: *Runner, state: *State, focused: bool
     return action;
 }
 
-fn tab(ui: *Ui, ed: *const Editor, id: []const u8, label: []const u8, active: bool) bool {
+fn tab(ui: *Ui, ed: *const Code, id: []const u8, label: []const u8, active: bool) bool {
     const lit = ui.isPointerOver(id);
     ui.open(.{
         .id = id,
@@ -154,11 +156,11 @@ fn tab(ui: *Ui, ed: *const Editor, id: []const u8, label: []const u8, active: bo
 
 /// The script's outline: each declaration, its members under it. Returns
 /// where the one clicked is.
-fn members(ui: *Ui, ed: *Editor) ?u32 {
+fn members(ui: *Ui, ed: *Code) ?u32 {
     var clicked: ?u32 = null;
     ui.open(.{
         .id = "members",
-        .width = .fixed(26 * ed.metrics.advance),
+        .width = .fixed(26 * @max(1, ed.metrics.measure.width("0"))),
         .height = .grow,
         .direction = .top_to_bottom,
         .padding = .xy(6, 6),
@@ -179,7 +181,7 @@ fn members(ui: *Ui, ed: *Editor) ?u32 {
     return clicked;
 }
 
-fn member(ui: *Ui, ed: *Editor, s: service.Symbol, depth: u16, index: *usize) ?u32 {
+fn member(ui: *Ui, ed: *Code, s: service.Symbol, depth: u16, index: *usize) ?u32 {
     var name: [32]u8 = undefined;
     const id = std.fmt.bufPrint(&name, "member-{d}", .{index.*}) catch "member";
     index.* += 1;
@@ -195,13 +197,13 @@ fn member(ui: *Ui, ed: *Editor, s: service.Symbol, depth: u16, index: *usize) ?u
         .background_color = if (ui.isPointerOver(id)) theme.button_hover else .transparent,
     });
     defer ui.close();
-    const letter, const color = theme.kind(s.kind);
+    const letter, const color = theme.code.kind(s.kind);
     ui.text(letter, style(ed, color));
     ui.text(s.name, style(ed, theme.ink));
     return if (clicked) s.span.start else null;
 }
 
-fn problems(ui: *Ui, ed: *Editor) ?u32 {
+fn problems(ui: *Ui, ed: *Code) ?u32 {
     var clicked: ?u32 = null;
     ui.open(.{
         .id = "problems",
@@ -239,7 +241,7 @@ fn problems(ui: *Ui, ed: *Editor) ?u32 {
     return clicked;
 }
 
-fn output(ui: *Ui, ed: *Editor, runner: *Runner) void {
+fn output(ui: *Ui, ed: *Code, runner: *Runner) void {
     ui.open(.{
         .id = "output",
         .width = .grow,

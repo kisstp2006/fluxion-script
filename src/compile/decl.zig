@@ -106,6 +106,7 @@ pub fn resolve(c: *Compiler) Error!void {
             g.type = try c.pool.function(sig);
             const proto = try make.proto(c.vm, try c.vm.intern(node.name.?.text));
             proto.decl = node.name.?.span;
+            if (node.doc) |d| proto.doc = try c.vm.gpa.dupe(u8, d);
             try c.functions.append(c.gpa, .{ .node = node, .sig = sig, .owner = .none, .global = g.index, .proto = proto });
         },
         .constant, .variable => try resolveVar(c, g),
@@ -202,8 +203,15 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
         }
     }
     const inherited = info.fields.items.len;
+    if (info.parent == null) for (vm.host_members.items) |m| {
+        try info.fields.append(c.pool.allocator(), .{ .name = m.name, .type = .any, .slot = @intCast(info.fields.items.len), .is_const = true, .is_signal = false, .span = .empty, .file = .none, .host = true, .doc = m.doc });
+    };
     for (node.fields) |f| {
         if (info.field(f.name.text)) |prior| {
+            if (prior.host) {
+                _ = try c.err(f.name.span, "`{s}` is a member the host gives every struct; call the field something else", .{f.name.text});
+                continue;
+            }
             const h = try c.err(f.name.span, "`{s}` already has a field `{s}`", .{ node.name.text, f.name.text });
             _ = try h.label(.{ .file = prior.file, .span = prior.span }, "first declared here", .{});
             continue;
@@ -216,6 +224,10 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
         try info.fields.append(c.pool.allocator(), .{ .name = f.name.text, .type = t, .slot = @intCast(info.fields.items.len), .is_const = false, .is_signal = false, .span = f.name.span, .file = c.file });
     }
     for (node.signals) |sig| {
+        if (info.field(sig.name.text)) |prior| if (prior.host) {
+            _ = try c.err(sig.name.span, "`{s}` is a member the host gives every struct; call the signal something else", .{sig.name.text});
+            continue;
+        };
         if (info.field(sig.name.text) != null) {
             _ = try c.err(sig.name.span, "`{s}` already has a member `{s}`", .{ node.name.text, sig.name.text });
             continue;
@@ -245,8 +257,16 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
             .exported = false,
             .is_const = f.is_const,
             .is_signal = f.is_signal,
+            .host = f.host,
         };
+        if (f.signal) |sig| out.signature = try paramsText(c, sig.params);
         if (i >= inherited) {
+            if (f.host) if (f.doc) |d| {
+                out.doc = try vm.gpa.dupe(u8, d);
+            };
+            if (f.is_signal) for (node.signals) |sig| if (std.mem.eql(u8, sig.name.text, f.name)) {
+                if (sig.doc) |d| out.doc = try vm.gpa.dupe(u8, d);
+            };
             const ast_field = findField(node, f.name);
             if (ast_field) |af| {
                 if (af.doc) |d| out.doc = try vm.gpa.dupe(u8, d);
@@ -314,6 +334,10 @@ fn resolveMethods(c: *Compiler, s: StructDecl) Error!void {
     const vm = c.vm;
     for (s.node.methods) |m| {
         const name = m.name.?.text;
+        if (s.info.field(name)) |prior| if (prior.host) {
+            _ = try c.err(m.name.?.span, "`{s}` is a member the host gives every struct; call the method something else", .{name});
+            continue;
+        };
         if (s.info.field(name) != null) {
             _ = try c.err(m.name.?.span, "`{s}` already has a field `{s}`; a method cannot share its name", .{ s.info.name, name });
             continue;
@@ -331,6 +355,8 @@ fn resolveMethods(c: *Compiler, s: StructDecl) Error!void {
         };
         const proto = try make.proto(vm, try vm.intern(name));
         proto.decl = m.name.?.span;
+        if (m.doc) |d| proto.doc = try vm.gpa.dupe(u8, d);
+        proto.signature = try paramsText(c, sig.params[@intFromBool(sig.has_self)..]);
         try s.info.methods.put(c.pool.allocator(), name, .{ .name = name, .sig = sig, .span = m.name.?.span, .file = c.file });
         try c.functions.append(c.gpa, .{ .node = m, .sig = sig, .owner = .{ .@"struct" = s.info }, .global = null, .proto = proto });
     }
@@ -345,6 +371,19 @@ fn sameShape(a: *const types.Signature, b: *const types.Signature) bool {
         if (x.type != y.type or x.has_default != y.has_default) return false;
     }
     return true;
+}
+
+/// Parameters as a host shows them, `by: ?Actor, damage: int`; an untyped
+/// one is its name alone.
+fn paramsText(c: *Compiler, params: []const types.Param) Allocator.Error![]u8 {
+    var out: std.Io.Writer.Allocating = .init(c.vm.gpa);
+    errdefer out.deinit();
+    for (params, 0..) |param, i| {
+        if (i > 0) out.writer.writeAll(", ") catch return error.OutOfMemory;
+        out.writer.writeAll(param.name) catch return error.OutOfMemory;
+        if (param.type != .any and param.type != .unknown) out.writer.print(": {s}", .{c.typeName(param.type)}) catch return error.OutOfMemory;
+    }
+    return out.toOwnedSlice() catch return error.OutOfMemory;
 }
 
 pub fn signature(c: *Compiler, node: *const ast.Fn, self_type: ?Type) Error!*types.Signature {

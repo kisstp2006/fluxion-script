@@ -30,6 +30,7 @@ pub fn fill(vm: *Vm, inst: *object.Instance) Error!void {
     for (inst.class.fields, 0..) |f, i| {
         if (!f.is_signal) continue;
         const s = try make.signal(vm, f.name, @intCast(f.default.asInt()));
+        s.owner = .fromObj(.instance, &inst.obj);
         const v: Value = .fromObj(.signal, &s.obj);
         inst.fields()[i] = v;
         vm.heap.barrier(&inst.obj, v);
@@ -41,11 +42,14 @@ fn self(args: []Value) *Signal {
 }
 
 fn add(vm: *Vm, args: []Value, is_once: bool) Error!Value {
-    const s = self(args);
-    const target = try native.callable(vm, args, 1);
+    try connectTo(vm, self(args), try native.callable(vm, args, 1), is_once);
+    return .null;
+}
+
+/// `target` called on each emit from now on, or on the next one only.
+pub fn connectTo(vm: *Vm, s: *Signal, target: Value, is_once: bool) std.mem.Allocator.Error!void {
     try s.connections.append(vm.gpa, .{ .target = target, .once = is_once });
     vm.heap.barrier(&s.obj, target);
-    return .null;
 }
 
 fn connect(vm: *Vm, args: []Value) Error!Value {
@@ -66,12 +70,16 @@ fn same(a: Value, b: Value) bool {
 }
 
 fn disconnect(_: *Vm, args: []Value) Error!Value {
-    const s = self(args);
-    for (s.connections.items, 0..) |c, i| if (same(c.target, args[1])) {
+    return .boolean(disconnectFrom(self(args), args[1]));
+}
+
+/// Whether `target` was connected, and is not any more.
+pub fn disconnectFrom(s: *Signal, target: Value) bool {
+    for (s.connections.items, 0..) |c, i| if (same(c.target, target)) {
         _ = s.connections.orderedRemove(i);
-        return .true;
+        return true;
     };
-    return .false;
+    return false;
 }
 
 fn isConnected(_: *Vm, args: []Value) Error!Value {
@@ -84,8 +92,12 @@ fn connections(_: *Vm, args: []Value) Error!Value {
 }
 
 fn emit(vm: *Vm, args: []Value) Error!Value {
-    const s = self(args);
-    const payload = args[1..];
+    try emitOn(vm, self(args), args[1..]);
+    return .null;
+}
+
+/// Calls what is connected, with `payload`, and wakes what waits.
+pub fn emitOn(vm: *Vm, s: *Signal, payload: []const Value) Error!void {
     const snapshot = try vm.gpa.dupe(object.Connection, s.connections.items);
     defer vm.gpa.free(snapshot);
     const list = try make.list(vm, snapshot.len, .any);
@@ -109,6 +121,7 @@ fn emit(vm: *Vm, args: []Value) Error!Value {
             if (fired and c.once) _ = s.connections.orderedRemove(i) else i += 1;
         }
     }
+    if (vm.options.on_emit) |hook| if (s.owner.tag == .instance) try hook(vm, s.owner, s.name.bytes(), payload);
     if (s.waiters.items.len > 0) {
         const result: Value = switch (payload.len) {
             0 => .null,
@@ -129,5 +142,4 @@ fn emit(vm: *Vm, args: []Value) Error!Value {
         s.waiters.clearRetainingCapacity();
         for (waiting.items.items) |t| try call.resumeTask(vm, t.as(object.Task), result);
     }
-    return .null;
 }

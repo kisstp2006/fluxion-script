@@ -28,10 +28,9 @@ const ui_lib = @import("fluxion_ui");
 const render = @import("fluxion_ui_rhi");
 const flux = @import("fluxion_script");
 
-const Editor = @import("Editor.zig");
+const Code = flux.edit.Code;
 const Runner = @import("Runner.zig");
 const panels = @import("panels.zig");
-const view = @import("view.zig");
 const theme = @import("theme.zig");
 
 const Ui = ui_lib.Ui;
@@ -118,7 +117,7 @@ fn giveOs(context: ?*anyopaque, vm: *flux.Vm) anyerror!void {
 }
 
 /// What a key means to the editor, when it means anything.
-fn editorKey(k: platform.event.KeyEvent) ?Editor.Key {
+fn editorKey(k: platform.event.KeyEvent) ?flux.edit.Key {
     const letter = if (k.virtual != .unknown) k.virtual else k.key;
     return switch (k.key) {
         .left => .left,
@@ -207,10 +206,12 @@ pub fn main(init: std.process.Init) !void {
     const scale = win.contentScale()[0];
     const font_size: u16 = @intFromFloat(@round(15 * @max(1, scale)));
     const scaled = measured.face.at(@floatFromInt(font_size));
-    const metrics: Editor.Metrics = .{
+    // The code measures itself through the interface, as any font needs.
+    var ruler: @import("fluxion_script_ui").Ruler = .{ .ui = &ui, .style = .{ .font_size = font_size } };
+    const metrics: flux.edit.Metrics = .{
         .font_size = font_size,
-        .advance = scaled.advanceOf('M') catch 9,
         .line_height = @ceil(scaled.lineHeight()),
+        .measure = ruler.measure(),
     };
 
     // The script.
@@ -226,7 +227,7 @@ pub fn main(init: std.process.Init) !void {
         break :blk try gpa.dupe(u8, "");
     } else try gpa.dupe(u8, welcome);
     defer gpa.free(text);
-    var editor: Editor = try .init(gpa, path orelse "untitled.flux", text, options, metrics);
+    var editor: Code = try .init(gpa, path orelse "untitled.flux", text, options, metrics);
     defer editor.deinit();
     var runner: Runner = .init(gpa, io);
     defer runner.deinit();
@@ -320,11 +321,12 @@ pub fn main(init: std.process.Init) !void {
             const fb_now = win.framebufferSize();
             state.panel_height = std.math.clamp(@as(f32, @floatFromInt(fb_now[1])) - pointer_y - 30, 60, @as(f32, @floatFromInt(fb_now[1])) - 200);
         } else {
-            view.pointer(&editor, &ui, .{ .x = pointer_x, .y = pointer_y, .down = down, .pressed = pressed, .mods = .{ .shift = mods.shift, .ctrl = mods.control and !mods.alt } });
+            panels.code_view.pointer(&editor, &ui, .{ .x = pointer_x, .y = pointer_y, .down = down, .pressed = pressed, .mods = .{ .shift = mods.shift, .ctrl = mods.control and !mods.alt } });
         }
         pressed = false;
         if (wheel != 0) {
-            if (ui.isPointerOver("code") and !ui.isPointerOver("completion")) editor.scroll(wheel, mods.shift) else _ = ui.scrollHovered(0, -wheel * 40);
+            const ids = panels.code_view.ids;
+            if (ui.isPointerOver(ids.code) and !ui.isPointerOver(ids.completion)) editor.scroll(wheel, mods.shift) else _ = ui.scrollHovered(0, -wheel * 40);
             wheel = 0;
         }
         editor.refresh();
@@ -340,7 +342,7 @@ pub fn main(init: std.process.Init) !void {
         ui.begin(.{ .size = size });
         const action = panels.shell(&ui, &editor, &runner, &state, focused);
         const commands = try ui.end();
-        view.measure(&editor, &ui);
+        panels.code_view.measure(&editor, &ui, 1);
         win.setCursorShape(switch (ui.cursor()) {
             .arrow => .arrow,
             .ibeam => .ibeam,
@@ -391,10 +393,10 @@ pub fn main(init: std.process.Init) !void {
 /// frames in, for a picture of it.
 const Demo = enum { complete, signature, hover, problems, run };
 
-fn play(demo: Demo, ed: *Editor, runner: *Runner, x: *f32, y: *f32) !void {
+fn play(demo: Demo, ed: *Code, runner: *Runner, x: *f32, y: *f32) !void {
     const b = &ed.buffer;
     const at = struct {
-        fn end(e: *Editor, needle: []const u8) void {
+        fn end(e: *Code, needle: []const u8) void {
             const found = std.mem.indexOf(u8, e.buffer.text.items, needle) orelse return;
             e.buffer.moveTo(e.buffer.lineEnd(e.buffer.lineOf(@intCast(found))), false);
         }
@@ -413,21 +415,20 @@ fn play(demo: Demo, ed: *Editor, runner: *Runner, x: *f32, y: *f32) !void {
         },
         .hover => {
             const found: u32 = @intCast(std.mem.indexOf(u8, b.text.items, "Ball{}") orelse return);
-            const col: f32 = @floatFromInt(b.column(found + 2) -| ed.left);
             const line: f32 = @floatFromInt(b.lineOf(found) -| ed.top);
-            x.* = ed.view[0] + view.gutterWidth(ed) + col * ed.metrics.advance;
+            x.* = ed.view[0] + ed.gutter + ed.xOf(found + 2) - ed.left;
             y.* = ed.view[1] + (line + 0.5) * ed.metrics.line_height;
         },
         .run => try runner.start(ed.path, b.text.items),
     }
 }
 
-fn runScript(runner: *Runner, editor: *Editor) !void {
+fn runScript(runner: *Runner, editor: *Code) !void {
     try runner.start(editor.path, editor.buffer.text.items);
 }
 
 /// Writes the file; while the script runs, its new code goes in too.
-fn save(editor: *Editor, runner: *Runner, io: std.Io) void {
+fn save(editor: *Code, runner: *Runner, io: std.Io) void {
     std.Io.Dir.cwd().writeFile(io, .{ .sub_path = editor.path, .data = editor.buffer.text.items }) catch |err| {
         runner.say(.err, "cannot save {s}: {s}", .{ editor.path, @errorName(err) });
         return;
@@ -438,7 +439,7 @@ fn save(editor: *Editor, runner: *Runner, io: std.Io) void {
 
 /// Another file in the editor - unless this one has changes, which are
 /// not thrown away.
-fn open(editor: *Editor, runner: *Runner, path: []const u8, io: std.Io) !void {
+fn open(editor: *Code, runner: *Runner, path: []const u8, io: std.Io) !void {
     if (editor.buffer.modified()) {
         runner.say(.err, "{s} has changes: save it first, then open {s}", .{ std.fs.path.basename(editor.path), std.fs.path.basename(path) });
         return;
@@ -452,8 +453,5 @@ fn open(editor: *Editor, runner: *Runner, path: []const u8, io: std.Io) !void {
 }
 
 test {
-    _ = @import("Buffer.zig");
-    _ = Editor;
     _ = Runner;
-    _ = view;
 }

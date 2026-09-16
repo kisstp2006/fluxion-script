@@ -107,8 +107,12 @@ pub const Field = struct {
     /// Given its value by the struct's defaults, made for each instance: a
     /// list, a map, or anything computed. `default` is only its zero then.
     computed: bool = false,
+    /// Given by the host to every struct: see `Vm.declareHostMember`.
+    host: bool = false,
     annotations: ?*Map = null,
     doc: ?[]const u8 = null,
+    /// A signal's parameters as written, `by: ?Actor`.
+    signature: ?[]const u8 = null,
 };
 
 pub const Class = struct {
@@ -200,6 +204,11 @@ pub const Proto = struct {
     has_self: bool = false,
     coroutine: bool = false,
     returns: types.Check = .any,
+    /// The `///` comment written above a declared function, for a host.
+    doc: ?[]const u8 = null,
+    /// A declared function's parameters as written, `dt: float`, without
+    /// `self`.
+    signature: ?[]const u8 = null,
     /// Where a call whose arguments the compiler has already checked
     /// starts: past the checks of the required parameters.
     fast_entry: u32 = 0,
@@ -326,6 +335,9 @@ pub const Signal = struct {
     connections: std.ArrayList(Connection) = .empty,
     waiters: std.ArrayList(*Task) = .empty,
     params: u8 = 0,
+    /// The instance it is a signal of, for `Vm.Options.on_emit`; null for
+    /// one that belongs to none.
+    owner: Value = .null,
 
     pub const from = Header(Signal).from;
 };
@@ -353,8 +365,25 @@ pub const Handle = struct {
     value: @import("fluxion_reflect").Value,
     owner: Value = .null,
     owned: bool = false,
+    /// A live handle is looked up again at each use, through the host's
+    /// resolver and its key; so is a handle reached through one, by its step
+    /// from its owner. `value` is then only where it was the last time.
+    live: ?*const Resolver = null,
+    key: u64 = 0,
+    step: Step = .none,
+
+    pub const Step = union(enum) { none, field: u32, element: u32 };
 
     pub const from = Header(Handle).from;
+};
+
+/// Where the value a live handle stands for is now, or null when it is gone:
+/// see `Vm.liveHandle`. It outlives the handles made with it.
+pub const Resolver = struct {
+    context: ?*anyopaque = null,
+    resolve: *const fn (context: ?*anyopaque, key: u64, t: *const @import("fluxion_reflect").Type) ?@import("fluxion_reflect").Value,
+    /// Why one would be gone, said after "this Health is gone: ".
+    why: []const u8 = "what it was found by is not there any more",
 };
 
 test {

@@ -177,7 +177,7 @@ pub fn hover(a: *const Analysis, arena: Allocator, offset: u32) Allocator.Error!
     }
     var out: Writer.Allocating = .init(arena);
     const w = &out.writer;
-    var doc: ?[]const u8 = null;
+    var doc: ?[]const u8 = u.doc;
     (blk: {
         switch (u.kind) {
             .variable, .constant, .parameter, .function => {

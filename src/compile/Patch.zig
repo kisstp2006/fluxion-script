@@ -171,7 +171,10 @@ fn deinit(p: *Patch, gpa: Allocator) void {
 
 fn freeClass(gpa: Allocator, class: object.Class) void {
     var c = class;
-    for (c.fields) |f| if (f.doc) |d| gpa.free(d);
+    for (c.fields) |f| {
+        if (f.doc) |d| gpa.free(d);
+        if (f.signature) |t| gpa.free(t);
+    }
     gpa.free(c.fields);
     c.slots.deinit(gpa);
     c.methods.deinit(gpa);

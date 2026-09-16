@@ -112,7 +112,7 @@ pub fn value(w: *Writer, v: Value, quoted: bool, depth: u32) Writer.Error!void {
             try w.writeByte('{');
             var shown: usize = 0;
             for (inst.class.fields, inst.fields()) |f, x| {
-                if (f.is_signal) continue;
+                if (f.is_signal or f.host) continue;
                 try w.writeAll(if (shown == 0) " ." else ", .");
                 try w.writeAll(f.name.bytes());
                 try w.writeAll(" = ");

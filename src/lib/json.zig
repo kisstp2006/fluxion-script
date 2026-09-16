@@ -127,7 +127,7 @@ fn emit(w: *fjson.Writer, v: Value, depth: u32, what: *[]const u8) Failure!void 
             const inst = v.as(object.Instance);
             try w.beginObject();
             for (inst.class.fields, inst.fields()) |f, x| {
-                if (f.is_signal) continue;
+                if (f.is_signal or f.host) continue;
                 try w.key(f.name.bytes());
                 try emit(w, x, depth + 1, what);
             }

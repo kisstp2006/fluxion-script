@@ -18,6 +18,11 @@ pub const Obj = object.Obj;
 
 const Vm = @This();
 
+/// To fluxion-reflect, a VM is a thing to point at, not a struct to look
+/// into: a reflected method may take the `*Vm` that calls it.
+pub const reflect_opaque = true;
+pub const reflect_name = "flux.Vm";
+
 pub const Error = error{ Panic, OutOfMemory };
 
 pub const Loader = struct {
@@ -41,6 +46,11 @@ pub const Options = struct {
     io: ?std.Io = null,
     /// Called with every panic in a task nothing is waiting for.
     on_task_panic: ?*const fn (vm: *Vm, panic: *const Panic) void = null,
+    /// Called once for every emit of an instance's signal, by a script or by
+    /// `vm.emitSignal`, after the signal's own connections: how an engine
+    /// hears its scripts' signals without connecting to each. An error it
+    /// returns stops the script that emitted, as a native's does.
+    on_emit: ?*const fn (vm: *Vm, instance: Value, signal: []const u8, args: []const Value) Error!void = null,
 };
 
 pub const TraceFrame = struct {
@@ -74,6 +84,11 @@ checks: types.Table = .{},
 sources: diag.Sources,
 modules: std.StringHashMapUnmanaged(*object.Module) = .empty,
 prelude: std.AutoHashMapUnmanaged(*object.String, Value) = .empty,
+/// Members every struct's instances have without declaring them, in slot
+/// order: see `declareHostMember`.
+host_members: std.ArrayList(HostMember) = .empty,
+/// What the host said of the globals it defined, for an editor to show.
+host_docs: std.StringHashMapUnmanaged([]u8) = .empty,
 native_modules: std.StringHashMapUnmanaged(*object.Module) = .empty,
 methods: std.EnumArray(BuiltinType, std.AutoHashMapUnmanaged(*object.String, Value)),
 main: Fiber,
@@ -158,6 +173,24 @@ pub const defineModule = api.defineModule;
 pub const value = api.value;
 pub const handle = api.handle;
 pub const newHandle = api.newHandle;
+pub const adoptHandle = api.adoptHandle;
+pub const valueOf = api.valueOf;
+pub const reflectOf = api.reflectOf;
+pub const HostMember = struct { name: []u8, doc: ?[]u8 };
+pub const Reload = api.Reload;
+pub const ReloadError = api.ReloadError;
+pub const declareHostMember = api.declareHostMember;
+pub const defineGlobal = api.defineGlobal;
+pub const handleOf = api.handleOf;
+pub const liveHandle = api.liveHandle;
+pub const instantiate = api.instantiate;
+pub const methodNamed = api.methodNamed;
+pub const hasMethod = api.hasMethod;
+pub const callMethod = api.callMethod;
+pub const connectSignal = api.connectSignal;
+pub const disconnectSignal = api.disconnectSignal;
+pub const emitSignal = api.emitSignal;
+pub const native = api.native;
 
 pub fn compileSession(vm: *Vm) Allocator.Error!*Session {
     if (vm.session) |s| return s;
@@ -218,6 +251,17 @@ pub fn destroy(vm: *Vm) void {
     while (native_names.next()) |k| gpa.free(k.*);
     vm.native_modules.deinit(gpa);
     vm.prelude.deinit(gpa);
+    for (vm.host_members.items) |m| {
+        gpa.free(m.name);
+        if (m.doc) |d| gpa.free(d);
+    }
+    vm.host_members.deinit(gpa);
+    var docs = vm.host_docs.iterator();
+    while (docs.next()) |e| {
+        gpa.free(e.key_ptr.*);
+        gpa.free(e.value_ptr.*);
+    }
+    vm.host_docs.deinit(gpa);
     for (&vm.methods.values) |*m| m.deinit(gpa);
     vm.main.deinit(gpa);
     vm.roots.deinit(gpa);

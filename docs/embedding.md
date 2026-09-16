@@ -104,7 +104,92 @@ methods `reflect_methods` lists, through
 `player.hp -= 3`, `player.pos.x += 1`, `player.heal(5)`. A wrong type is
 a panic that names the field; a misspelt name gets a "did you mean". The
 value must outlive the scripts' use of it; `vm.newHandle(T)` makes one the
-script owns instead, freed with the handle.
+script owns instead, freed with the handle, and `vm.adoptHandle(pointer)`
+hands the collector a value the host made with `vm.gpa.create` - one a
+script may keep after the host is done with it. A value known only at run time
+as a `fluxion_reflect.Value` - a component found by name - is
+`vm.handleOf(value)`.
+
+A reflected method may take the VM calling it, as its first parameter after
+`self`, and return a `flux.Value` as it is - which is how a method hands a
+script something only the VM can make:
+
+```zig
+pub fn get(self: *EntityRef, vm: *flux.Vm, component: []const u8) !flux.Value {
+    const found = self.app.componentOf(self.entity, component) orelse return .null;
+    return vm.handleOf(found);    // a script writes `self.entity.get("Health")`
+}
+```
+
+The script does not pass the VM, and a panic the method raises with
+`vm.fail` stops the script as a native's does.
+
+A handle points at the value where it was when the handle was made. A value
+that moves - a component in storage that is compacted and grown - wants a
+*live* handle, which the host looks up again each time a script uses it:
+
+```zig
+const resolver: flux.Resolver = .{
+    .context = &world,
+    .resolve = findComponent,   // fn (context, key: u64, type) ?fluxion_reflect.Value
+    .why = "its entity was despawned, or the component taken off",
+};
+const health = try vm.liveHandle(&resolver, entity_bits, fluxion_reflect.typeOf(Health));
+```
+
+Every read, write, index and method call on it asks `resolve` first, and so
+does every handle reached through it - `self.body.shape.radius = 3` too. When
+`resolve` gives null, the script stops with a panic: "this Health is gone:
+its entity was despawned, or the component taken off". The resolver outlives
+the handles made with it.
+
+## A script's structs, as an engine uses them
+
+An engine puts a script on an entity: it makes an instance of a struct the
+script declares, calls its `ready` and `update` if it has them, and wires
+its signals to its own.
+
+```zig
+// Before compiling scripts - and on an editor's analysis VMs, so that
+// completions know them.
+try vm.declareHostMember("entity", "The entity this script is on.");
+try vm.defineGlobal("app", try vm.handle(&app), "The running game.");
+
+const class = vm.get(module, "Player").?;
+const player = try vm.instantiate(class, &.{.{ .name = "entity", .value = entity_handle }});
+try vm.hold(player);
+
+// Looked up once, called every frame; looked up again after a reload.
+if (vm.methodNamed(class, "update")) |update| _ = try vm.call(update, &.{ player, .float(dt) });
+_ = try vm.callMethod(player, "on_hit", &.{.int(10)});
+
+// Signals, both ways.
+const heard = try vm.native("on_died", onDied, 1, 1, &engine);  // finds &engine in vm.current_native.?.user
+try vm.connectSignal(player, "died", heard);
+try vm.emitSignal(player, "healed", &.{.int(5)});
+```
+
+A host member is on every struct's instances without being declared, and
+a script reads it as `self.entity` but cannot assign it; one a script
+makes with `Player{}` has it null, and printing an instance leaves it out.
+A global defined with `defineGlobal` is seen by every module without an
+import, and is compiled into the scripts that use it, so define it first.
+
+An engine with a signal table of its own hears every emit of an instance's
+signal without connecting to each: `Vm.Options.on_emit` is called with the
+instance, the signal's name and its arguments, once per emit, after the
+signal's own connections; an error it returns stops the script that
+emitted. The other way, `vm.valueOf(reflect_value)` turns an argument the
+engine has only as a `fluxion_reflect.Value` into the script's own - numbers,
+strings and vectors converted, a slice as a list, anything else copied into
+a handle the collector owns - and `vm.reflectOf(handle)` gives the host what
+a handle stands for now.
+
+`flux.methodsOf(class, &buffer)` and `flux.signalsOf(class, &buffer)` list
+what a struct has, its own first and then each parent's, in the order
+written: each a `flux.Member` with the name, the number of parameters, the
+parameters as written (`by: ?Actor`) and the doc comment. That is what an
+editor's signal panel shows.
 
 ## Time, tasks and panics
 

@@ -44,6 +44,10 @@ pub const Value = extern struct {
     extra: u32,
     tag: Tag,
 
+    /// A reflected method may return one, handed to the script as it is.
+    pub const reflect_opaque = true;
+    pub const reflect_name = "flux.Value";
+
     pub const @"null": Value = .{ .raw = 0, .extra = 0, .tag = .null };
     pub const @"true": Value = .{ .raw = 1, .extra = 0, .tag = .bool };
     pub const @"false": Value = .{ .raw = 0, .extra = 0, .tag = .bool };

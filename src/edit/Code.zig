@@ -6,22 +6,36 @@
 //! text's last change. Completions, signatures and hovers are asked for as
 //! they are wanted, the way Godot's script editor asks GDScript.
 //!
-//! How it is drawn is `view.zig`.
+//! Nothing here draws. Widths come from the interface through `Metrics`,
+//! measured, so any font will do; `fluxion_script_ui` is the view on
+//! fluxion-ui.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const flux = @import("fluxion_script");
 const fuzzy = @import("fluxion_text").fuzzy;
-const service = flux.service;
+const service = @import("../service.zig");
 const Buffer = @import("Buffer.zig");
 
-const Editor = @This();
+const Code = @This();
 
 pub const Metrics = struct {
     font_size: u16,
-    /// How wide every character is: the font is monospaced.
-    advance: f32,
     line_height: f32,
+    /// How wide a piece of the code is on screen, which only the interface
+    /// knows: its font is the system's, and its characters are not all of
+    /// one width. Zero-width until the panel hands one over.
+    measure: Measure = .{},
+};
+
+/// How the code is measured, from the interface that draws it.
+pub const Measure = struct {
+    context: ?*const anyopaque = null,
+    widthFn: ?*const fn (context: ?*const anyopaque, run: []const u8) f32 = null,
+
+    pub fn width(self: Measure, run: []const u8) f32 {
+        const f = self.widthFn orelse return 0;
+        return f(self.context, run);
+    }
 };
 
 pub const Problem = struct {
@@ -29,7 +43,7 @@ pub const Problem = struct {
     end: u32,
     line: u32,
     column: u32,
-    severity: flux.diag.Severity,
+    severity: @import("../diag.zig").Severity,
     message: []const u8,
 };
 
@@ -74,12 +88,12 @@ tokens: []const service.Token = &.{},
 problems: []const Problem = &.{},
 symbols: []const service.Symbol = &.{},
 
-/// The first line and column in view.
+/// The first line in view, and how far the view is scrolled sideways, in
+/// pixels: a character is not a column when the font is the system's.
 top: u32 = 0,
-left: u32 = 0,
-/// How many lines and columns fit, from the view's size last frame.
+left: f32 = 0,
+/// How many lines fit, from the view's size last frame.
 rows: u32 = 30,
-cols: u32 = 100,
 /// Keep the caret in view at the next frame.
 reveal: bool = true,
 
@@ -96,12 +110,14 @@ typed_at: f64 = 0,
 
 /// Where the view was drawn last frame: x, y, width, height.
 view: [4]f32 = .{ 0, 0, 0, 0 },
+/// How wide the line numbers were, from the view.
+gutter: f32 = 0,
 drag: enum { none, text, scrollbar } = .none,
 last_click: f64 = -1,
 clicks: u8 = 0,
 click_offset: u32 = 0,
 
-pub fn init(gpa: Allocator, path: []const u8, text: []const u8, options: service.Options, metrics: Metrics) Allocator.Error!Editor {
+pub fn init(gpa: Allocator, path: []const u8, text: []const u8, options: service.Options, metrics: Metrics) Allocator.Error!Code {
     return .{
         .gpa = gpa,
         .buffer = try .init(gpa, text),
@@ -115,7 +131,7 @@ pub fn init(gpa: Allocator, path: []const u8, text: []const u8, options: service
     };
 }
 
-pub fn deinit(ed: *Editor) void {
+pub fn deinit(ed: *Code) void {
     if (ed.analysis) |a| a.deinit();
     ed.info.deinit();
     ed.completion.shown.deinit(ed.gpa);
@@ -128,7 +144,7 @@ pub fn deinit(ed: *Editor) void {
 }
 
 /// Another file in the editor, as it is on disk.
-pub fn load(ed: *Editor, path: []const u8, text: []const u8) Allocator.Error!void {
+pub fn load(ed: *Code, path: []const u8, text: []const u8) Allocator.Error!void {
     try ed.buffer.setText(text);
     ed.gpa.free(ed.path);
     ed.path = try ed.gpa.dupe(u8, path);
@@ -142,7 +158,7 @@ pub fn load(ed: *Editor, path: []const u8, text: []const u8) Allocator.Error!voi
 
 /// Compiles the text again if it changed since it was last compiled: once a
 /// frame at most, and never while the keys come faster than that.
-pub fn refresh(ed: *Editor) void {
+pub fn refresh(ed: *Code) void {
     if (ed.analyzed == ed.buffer.version) return;
     ed.analyzed = ed.buffer.version;
     if (ed.analysis) |a| a.deinit();
@@ -175,7 +191,7 @@ pub fn refresh(ed: *Editor) void {
 }
 
 /// The first token that ends after `offset`.
-pub fn firstToken(ed: *const Editor, offset: u32) usize {
+pub fn firstToken(ed: *const Code, offset: u32) usize {
     var lo: usize = 0;
     var hi = ed.tokens.len;
     while (lo < hi) {
@@ -185,7 +201,7 @@ pub fn firstToken(ed: *const Editor, offset: u32) usize {
     return lo;
 }
 
-pub fn counts(ed: *const Editor) struct { errors: usize, warnings: usize } {
+pub fn counts(ed: *const Code) struct { errors: usize, warnings: usize } {
     var e: usize = 0;
     var w: usize = 0;
     for (ed.problems) |p| switch (p.severity) {
@@ -200,7 +216,7 @@ pub fn counts(ed: *const Editor) struct { errors: usize, warnings: usize } {
 // Completion
 
 /// Asks what could be typed at the caret, and opens the list if anything could.
-pub fn complete(ed: *Editor) void {
+pub fn complete(ed: *Code) void {
     ed.refresh();
     _ = ed.completion.arena.reset(.retain_capacity);
     const found = service.complete(ed.gpa, ed.completion.arena.allocator(), ed.path, ed.buffer.text.items, ed.buffer.cursor, ed.options) catch return ed.closeCompletion();
@@ -212,7 +228,7 @@ pub fn complete(ed: *Editor) void {
 
 /// The items that match the word typed so far, best first: the service's
 /// order - locals before the rest - then how well they match.
-pub fn filter(ed: *Editor) void {
+pub fn filter(ed: *Code) void {
     const c = &ed.completion;
     if (!c.open) return;
     if (ed.buffer.cursor < c.start or ed.buffer.selection() != null) return ed.closeCompletion();
@@ -248,12 +264,12 @@ pub fn filter(ed: *Editor) void {
     c.first = 0;
 }
 
-pub fn closeCompletion(ed: *Editor) void {
+pub fn closeCompletion(ed: *Code) void {
     ed.completion.open = false;
     ed.completion.shown.clearRetainingCapacity();
 }
 
-pub fn selectedItem(ed: *const Editor) ?service.Item {
+pub fn selectedItem(ed: *const Code) ?service.Item {
     const c = &ed.completion;
     if (!c.open or c.selected >= c.shown.items.len) return null;
     return c.items[c.shown.items[c.selected]];
@@ -261,7 +277,7 @@ pub fn selectedItem(ed: *const Editor) ?service.Item {
 
 /// Puts the chosen completion in place of the word; a function gets its
 /// parentheses, the caret between them when it takes arguments.
-pub fn accept(ed: *Editor, index: usize) Allocator.Error!void {
+pub fn accept(ed: *Code, index: usize) Allocator.Error!void {
     const c = &ed.completion;
     if (index >= c.shown.items.len) return;
     const item = c.items[c.shown.items[index]];
@@ -289,13 +305,13 @@ pub fn accept(ed: *Editor, index: usize) Allocator.Error!void {
 // ---------------------------------------------------------------------------
 // Signatures and hovers
 
-pub fn askSignature(ed: *Editor) void {
+pub fn askSignature(ed: *Code) void {
     _ = ed.signature_arena.reset(.retain_capacity);
     ed.signature = service.signatureHelp(ed.gpa, ed.signature_arena.allocator(), ed.path, ed.buffer.text.items, ed.buffer.cursor, ed.options) catch null;
 }
 
 /// The pointer has rested on `offset`: after a moment, what is there is shown.
-pub fn rest(ed: *Editor, offset: ?u32) void {
+pub fn rest(ed: *Code, offset: ?u32) void {
     const h = &ed.hover;
     if (offset == null) {
         h.offset = null;
@@ -323,7 +339,7 @@ pub fn rest(ed: *Editor, offset: ?u32) void {
     };
 }
 
-pub fn closePopups(ed: *Editor) void {
+pub fn closePopups(ed: *Code) void {
     ed.closeCompletion();
     ed.signature = null;
     ed.hover.shown = null;
@@ -332,7 +348,7 @@ pub fn closePopups(ed: *Editor) void {
 
 /// Where the name at the caret is declared: here, the caret goes there;
 /// in another file, that file is asked to be opened.
-pub fn goToDefinition(ed: *Editor, at: u32) void {
+pub fn goToDefinition(ed: *Code, at: u32) void {
     ed.refresh();
     const a = ed.analysis orelse return;
     const decl = a.definition(at) orelse return;
@@ -349,7 +365,7 @@ pub fn goToDefinition(ed: *Editor, at: u32) void {
 // ---------------------------------------------------------------------------
 // The keyboard
 
-fn edited(ed: *Editor) void {
+fn edited(ed: *Code) void {
     ed.reveal = true;
     ed.typed_at = ed.now;
     ed.hover.shown = null;
@@ -357,7 +373,7 @@ fn edited(ed: *Editor) void {
 
 /// A character typed. Typing a name opens completions, a `.` or an `@`
 /// asks what comes after it, and `(` and `,` what the call takes.
-pub fn typeChar(ed: *Editor, codepoint: u21) Allocator.Error!void {
+pub fn typeChar(ed: *Code, codepoint: u21) Allocator.Error!void {
     var utf8: [4]u8 = undefined;
     const n = std.unicode.utf8Encode(codepoint, &utf8) catch return;
     if (n == 1) try ed.buffer.typeChar(utf8[0]) else try ed.buffer.insert(utf8[0..n]);
@@ -379,7 +395,7 @@ pub fn typeChar(ed: *Editor, codepoint: u21) Allocator.Error!void {
 }
 
 /// A key pressed. Returns whether it did anything.
-pub fn key(ed: *Editor, k: Key, mods: Mods) Allocator.Error!bool {
+pub fn key(ed: *Code, k: Key, mods: Mods) Allocator.Error!bool {
     const b = &ed.buffer;
     const c = &ed.completion;
     if (c.open) switch (k) {
@@ -489,19 +505,48 @@ pub const visible_items = 10;
 
 /// The offset under a point of the window, with the view where it was drawn
 /// last and `gutter` its width.
-pub fn offsetAt(ed: *const Editor, view_x: f32, view_y: f32, gutter: f32, x: f32, y: f32) u32 {
+pub fn offsetAt(ed: *const Code, view_x: f32, view_y: f32, gutter: f32, x: f32, y: f32) u32 {
     const m = ed.metrics;
     const row: i64 = @intFromFloat(@floor((y - view_y) / m.line_height));
     const line: u32 = @intCast(std.math.clamp(@as(i64, ed.top) + row, 0, @as(i64, ed.buffer.lineCount()) - 1));
-    const col: i64 = @intFromFloat(@round((x - view_x - gutter) / m.advance));
-    return ed.buffer.offsetAt(line, @intCast(@max(0, @as(i64, ed.left) + col)));
+    return ed.offsetInLine(line, x - view_x - gutter + ed.left);
+}
+
+/// The offset in `line` nearest `wanted` pixels from the line's start: each
+/// character is measured until the pointer is past the middle of one.
+pub fn offsetInLine(ed: *const Code, line: u32, wanted: f32) u32 {
+    const b = &ed.buffer;
+    const start = b.lineStart(line);
+    const text = b.lineText(line);
+    if (wanted <= 0) return start;
+    var at: usize = 0;
+    var before: f32 = 0;
+    while (at < text.len) {
+        const step = std.unicode.utf8ByteSequenceLength(text[at]) catch 1;
+        const next = @min(text.len, at + step);
+        const after = ed.metrics.measure.width(text[0..next]);
+        if (wanted < (before + after) / 2) break;
+        before = after;
+        at = next;
+    }
+    return start + @as(u32, @intCast(at));
+}
+
+/// How far into the line `offset` is, in pixels.
+pub fn xOf(ed: *const Code, offset: u32) f32 {
+    const b = &ed.buffer;
+    const line = b.lineOf(offset);
+    const start = b.lineStart(line);
+    const text = b.lineText(line);
+    const upto = @min(text.len, offset - start);
+    return ed.metrics.measure.width(text[0..upto]);
 }
 
 /// The wheel, in notches: three lines each.
-pub fn scroll(ed: *Editor, notches: f32, sideways: bool) void {
+pub fn scroll(ed: *Code, notches: f32, sideways: bool) void {
     const lines: i64 = @intFromFloat(@round(-notches * 3));
     if (sideways) {
-        ed.left = @intCast(std.math.clamp(@as(i64, ed.left) + lines * 2, 0, 1000));
+        ed.left = std.math.clamp(ed.left + @as(f32, @floatFromInt(lines)) * ed.metrics.line_height, 0, 8000);
     } else {
         const most: i64 = @max(0, @as(i64, ed.buffer.lineCount()) - 1);
         ed.top = @intCast(std.math.clamp(@as(i64, ed.top) + lines, 0, most));
@@ -510,21 +555,28 @@ pub fn scroll(ed: *Editor, notches: f32, sideways: bool) void {
 }
 
 /// Brings the caret into view, when a change or a key moved it.
-pub fn follow(ed: *Editor) void {
+pub fn follow(ed: *Code) void {
     if (!ed.reveal) return;
+    // Not before the view has been measured once: there is no width yet to
+    // keep the caret inside, and a guess scrolls the first frame sideways.
+    if (ed.view[2] <= 0) return;
     ed.reveal = false;
     const b = &ed.buffer;
     const line = b.lineOf(b.cursor);
-    const col = b.column(b.cursor);
     if (line < ed.top) ed.top = line;
     if (ed.rows > 2 and line + 2 > ed.top + ed.rows) ed.top = line + 2 - ed.rows;
-    if (col < ed.left) ed.left = col -| 4;
-    if (ed.cols > 8 and col + 2 > ed.left + ed.cols) ed.left = col + 8 - ed.cols;
+
+    // Sideways, in pixels, with a character's room either side of the caret.
+    const room = ed.metrics.line_height;
+    const x = ed.xOf(ed.buffer.cursor);
+    const width = @max(64, ed.view[2] - ed.gutter);
+    if (x < ed.left + room) ed.left = @max(0, x - room);
+    if (x > ed.left + width - room) ed.left = x - width + room;
 }
 
 test "completions narrow as the word is typed" {
     const gpa = std.testing.allocator;
-    var ed: Editor = try .init(gpa, "t.flux", "fn fight(rounds: int) {\n    \n}\n", .{}, .{ .font_size = 16, .advance = 9, .line_height = 18 });
+    var ed: Code = try .init(gpa, "t.flux", "fn fight(rounds: int) {\n    \n}\n", .{}, .{ .font_size = 16, .line_height = 18 });
     defer ed.deinit();
     ed.buffer.moveTo(28, false);
     for ("rou") |c| try ed.typeChar(c);
@@ -541,7 +593,7 @@ test "completions narrow as the word is typed" {
 test "go to definition selects the name where it is declared" {
     const gpa = std.testing.allocator;
     const text = "struct Ball {\n    var x: int = 0;\n}\nfn f() {\n    var b = Ball{};\n    print(b.x);\n}\n";
-    var ed: Editor = try .init(gpa, "t.flux", text, .{}, .{ .font_size = 16, .advance = 9, .line_height = 18 });
+    var ed: Code = try .init(gpa, "t.flux", text, .{}, .{ .font_size = 16, .line_height = 18 });
     defer ed.deinit();
     ed.goToDefinition(@intCast(std.mem.indexOf(u8, text, "Ball{}").? + 2));
     try std.testing.expectEqualStrings("Ball", ed.buffer.selectedText());
@@ -553,7 +605,7 @@ test "go to definition selects the name where it is declared" {
 
 test "a function is completed with its parentheses, and its signature shown" {
     const gpa = std.testing.allocator;
-    var ed: Editor = try .init(gpa, "t.flux", "fn heal(amount: int) {}\nfn f() {\n    \n}\n", .{}, .{ .font_size = 16, .advance = 9, .line_height = 18 });
+    var ed: Code = try .init(gpa, "t.flux", "fn heal(amount: int) {}\nfn f() {\n    \n}\n", .{}, .{ .font_size = 16, .line_height = 18 });
     defer ed.deinit();
     ed.buffer.moveTo(@intCast(std.mem.indexOf(u8, ed.buffer.text.items, "    \n").? + 4), false);
     for ("hea") |c| try ed.typeChar(c);
@@ -562,4 +614,39 @@ test "a function is completed with its parentheses, and its signature shown" {
     try std.testing.expect(std.mem.indexOf(u8, ed.buffer.text.items, "    heal()\n") != null);
     try std.testing.expectEqual(@as(u8, ')'), ed.buffer.text.items[ed.buffer.cursor]);
     try std.testing.expectEqualStrings("heal(amount: int)", ed.signature.?.label);
+}
+
+/// A font whose `i` is narrow and whose other letters are not: what a
+/// proportional one does to columns.
+fn narrowI(_: ?*const anyopaque, run: []const u8) f32 {
+    var w: f32 = 0;
+    for (run) |c| w += if (c == 'i') 4 else 10;
+    return w;
+}
+
+test "places in a line are measured, not counted, in any font" {
+    const gpa = std.testing.allocator;
+    var ed: Code = try .init(gpa, "t.flux", "iiii wide and wider\nx\n", .{}, .{ .font_size = 16, .line_height = 20, .measure = .{ .widthFn = narrowI } });
+    defer ed.deinit();
+
+    // Four narrow letters and a space are 26 pixels, not five columns' 50.
+    try std.testing.expectEqual(@as(f32, 26), ed.xOf(5));
+    try std.testing.expectEqual(@as(u32, 5), ed.offsetInLine(0, 26));
+    // A point goes to the nearer side of the character under it.
+    try std.testing.expectEqual(@as(u32, 1), ed.offsetInLine(0, 3));
+    try std.testing.expectEqual(@as(u32, 0), ed.offsetInLine(0, 1));
+    // Past the end is the end; before the start is the start.
+    try std.testing.expectEqual(@as(u32, 19), ed.offsetInLine(0, 999));
+    try std.testing.expectEqual(@as(u32, 20), ed.offsetInLine(1, -5));
+    // Through the view: gutter 30, the view at (100, 50), the second line.
+    try std.testing.expectEqual(@as(u32, 21), ed.offsetAt(100, 50, 30, 100 + 30 + 9, 50 + 25));
+
+    // Scrolled sideways, the caret at the end of a long line is kept in view.
+    ed.view = .{ 0, 0, 130, 100 };
+    ed.gutter = 30;
+    ed.buffer.moveTo(19, false);
+    ed.reveal = true;
+    ed.follow();
+    try std.testing.expect(ed.left > 0);
+    try std.testing.expect(ed.xOf(19) - ed.left <= 100);
 }

@@ -61,6 +61,8 @@ pub const Use = struct {
     /// The name is the declaration itself.
     is_decl: bool = false,
     mutable: bool = false,
+    /// What the host said of what it gives: a host member, a host global.
+    doc: ?[]const u8 = null,
 };
 
 /// A declaration at the top of a module, or a member of one.
@@ -186,7 +188,11 @@ pub fn place(r: *Recorder, f: *Func, name: []const u8, span: diag.Span, p: names
             };
         },
         .global => |g| try r.global(c, span, g.*),
-        .builtin => try r.use(.{ .span = span, .kind = .builtin_function, .type = .any }),
+        .builtin => |v| {
+            const given = c.vm.host_docs.get(name);
+            const callable = v.tag == .native or v.tag == .function;
+            try r.use(.{ .span = span, .kind = if (callable or given == null) .builtin_function else .constant, .type = .any, .doc = given });
+        },
         .none => {},
     }
 }
@@ -204,7 +210,11 @@ pub fn enumMember(r: *Recorder, span: diag.Span, en: *const types.Enum, index: u
 /// a value or a type.
 pub fn member(r: *Recorder, c: *Compiler, span: diag.Span, owner: Type, m: Member) Allocator.Error!void {
     switch (m) {
-        .field => |fd| try r.use(.{ .span = span, .kind = if (fd.is_signal) .signal else .field, .type = fd.type, .decl = .{ .file = fd.file, .span = fd.span }, .owner = owner, .mutable = !fd.is_const }),
+        .field => |fd| if (fd.host) {
+            try r.use(.{ .span = span, .kind = .field, .type = fd.type, .owner = owner, .doc = fd.doc });
+        } else {
+            try r.use(.{ .span = span, .kind = if (fd.is_signal) .signal else .field, .type = fd.type, .decl = .{ .file = fd.file, .span = fd.span }, .owner = owner, .mutable = !fd.is_const });
+        },
         .method => |md| try r.use(.{ .span = span, .kind = .method, .type = try c.pool.function(md.sig), .decl = .{ .file = md.file, .span = md.span }, .owner = owner }),
     }
 }
@@ -295,10 +305,13 @@ pub fn scope(r: *Recorder, f: *Func) Allocator.Error!void {
         if (shadowed(items.items, name)) continue;
         try items.append(a, .{ .name = name, .kind = globalKind(g.kind), .type = g.type, .decl = c.at(g.span), .mutable = g.kind == .variable });
     }
-    var it = c.vm.prelude.keyIterator();
-    while (it.next()) |k| {
-        const name = k.*.bytes();
-        if (!shadowed(items.items, name)) try items.append(a, .{ .name = name, .kind = .builtin_function, .type = .any });
+    var it = c.vm.prelude.iterator();
+    while (it.next()) |e| {
+        const name = e.key_ptr.*.bytes();
+        if (shadowed(items.items, name)) continue;
+        const callable = e.value_ptr.tag == .native or e.value_ptr.tag == .function;
+        const given = c.vm.host_docs.contains(name);
+        try items.append(a, .{ .name = name, .kind = if (callable or !given) .builtin_function else .constant, .type = .any });
     }
     r.completion = .{ .scope = items.items };
 }

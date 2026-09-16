@@ -159,6 +159,7 @@ fn traverse(vm: *Vm, o: *Obj) usize {
         .signal => {
             const s = object.Signal.from(o);
             h.mark(&s.name.obj);
+            h.markValue(s.owner);
             for (s.connections.items) |c| h.markValue(c.target);
             for (s.waiters.items) |w| h.mark(&w.obj);
             return @sizeOf(object.Signal);
@@ -351,13 +352,18 @@ pub fn free(vm: *Vm, o: *Obj) void {
             gpa.free(p.caches);
             gpa.free(p.param_checks);
             gpa.free(p.param_names);
+            if (p.doc) |d| gpa.free(d);
+            if (p.signature) |t| gpa.free(t);
             release(vm, p, 0);
         },
         .native => release(vm, object.Native.from(o), 0),
         .method => release(vm, object.Method.from(o), 0),
         .class => {
             const c = object.Class.from(o);
-            for (c.fields) |f| if (f.doc) |d| gpa.free(d);
+            for (c.fields) |f| {
+                if (f.doc) |d| gpa.free(d);
+                if (f.signature) |t| gpa.free(t);
+            }
             gpa.free(c.fields);
             c.slots.deinit(gpa);
             c.methods.deinit(gpa);

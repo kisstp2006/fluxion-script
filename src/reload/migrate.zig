@@ -112,6 +112,7 @@ fn planMove(vm: *Vm, p: *Plan, inst: *object.Instance, old: []const object.Field
             try p.drop(vm.gpa, class, f.name);
         }
         out.* = try startValue(vm, f, 0);
+        if (f.is_signal) out.as(object.Signal).owner = .fromObj(.instance, &inst.obj);
         if (f.computed) try p.pending.append(vm.gpa, .{ .instance = inst, .slot = @intCast(slot) });
     }
 }
@@ -220,6 +221,7 @@ fn instanceOf(vm: *Vm, class: *object.Class, depth: u8) Allocator.Error!Value {
     const inst = try make.instance(vm, class);
     for (class.fields, inst.fields()) |f, *slot| {
         if (f.is_signal or f.computed or !vm.checks.accepts(f.check, slot.*)) slot.* = try startValue(vm, f, depth);
+        if (f.is_signal) slot.as(object.Signal).owner = .fromObj(.instance, &inst.obj);
     }
     return .fromObj(.instance, &inst.obj);
 }

@@ -65,6 +65,9 @@ pub const Field = struct {
     span: diag.Span,
     file: diag.FileId,
     signal: ?*const Signature = null,
+    /// Given by the host to every struct, with what the host said of it.
+    host: bool = false,
+    doc: ?[]const u8 = null,
 };
 
 pub const Method = struct {

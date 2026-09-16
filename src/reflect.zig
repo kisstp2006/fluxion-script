@@ -27,9 +27,129 @@ pub fn handle(vm: *Vm, pointer: anytype) Error!Value {
 }
 
 pub fn handleOf(vm: *Vm, rv: reflect.Value, owner: Value) Error!Value {
+    return handleAt(vm, rv, owner, .none);
+}
+
+/// A handle into `owner`, `step` along from it. The step is kept only when
+/// the owner is looked up at each use, since then this one has to be too.
+fn handleAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) Error!Value {
     const h = try vm.alloc(object.Handle, .handle, 0);
-    h.* = .{ .obj = h.obj, .value = rv, .owner = owner };
+    const moves = owner.tag == .handle and isLive(owner.as(object.Handle));
+    h.* = .{ .obj = h.obj, .value = rv, .owner = owner, .step = if (moves) step else .none };
     return .fromObj(.handle, &h.obj);
+}
+
+/// A handle on a value the host finds again each time a script uses it -
+/// a component that moves when its storage does. Every read, write, index
+/// and call asks `resolver` where it is now, and one reached through it asks
+/// through it; when it is gone, the script stops with a panic that says so.
+pub fn liveHandle(vm: *Vm, resolver: *const object.Resolver, key: u64, t: *const reflect.Type) Error!Value {
+    const now = resolver.resolve(resolver.context, key, t) orelse return vm.fail("this {s} is gone: {s}", .{ t.name.slice(), resolver.why });
+    const v = try handleOf(vm, now, .null);
+    const h = v.as(object.Handle);
+    h.live = resolver;
+    h.key = key;
+    return v;
+}
+
+fn isLive(h: *const object.Handle) bool {
+    return h.live != null or h.step != .none;
+}
+
+/// A value as a handle holds it: optionals unwrapped and a pointer to one
+/// followed, as `toFlux` made the handle of it. Null when nothing is there.
+fn settle(rv: reflect.Value) ?reflect.Value {
+    var at = rv;
+    while (true) switch (at.type.kind) {
+        .optional => at = at.unwrap() orelse return null,
+        .pointer => {
+            if (at.type.isString() or at.type.info.pointer.size != .one) return at;
+            at = at.deref() catch return null;
+        },
+        else => return at,
+    };
+}
+
+/// Where a handle's value is now; null when it is gone.
+pub fn current(h: *const object.Handle) ?reflect.Value {
+    if (h.live) |r| return r.resolve(r.context, h.key, h.value.type);
+    switch (h.step) {
+        .none => return h.value,
+        .field => |i| {
+            const base = target(current(h.owner.as(object.Handle)) orelse return null);
+            return settle(base.fieldAt(i) catch return null);
+        },
+        .element => |i| {
+            const base = target(current(h.owner.as(object.Handle)) orelse return null);
+            if (i >= (base.len() catch return null)) return null;
+            return settle(base.index(i) catch return null);
+        },
+    }
+}
+
+/// `current`, or a panic that says what is gone and why.
+fn resolve(vm: *Vm, h: *const object.Handle) Error!reflect.Value {
+    if (current(h)) |v| return v;
+    var root = h;
+    while (root.live == null and root.owner.tag == .handle) root = root.owner.as(object.Handle);
+    const why = if (root.live) |l| l.why else "it is not there any more";
+    return vm.fail("this {s} is gone: {s}", .{ h.value.type.name.slice(), why });
+}
+
+/// A value the host has as a `fluxion_reflect.Value`, as a script's own, so
+/// that the memory it came from can go right after: scalars, enums, strings
+/// and vectors converted, a slice or an array as a list of its elements
+/// converted, and anything else copied into a handle the collector owns. A
+/// copied struct's own pointers and slices point where they did.
+pub fn valueOf(vm: *Vm, rv: reflect.Value) Error!Value {
+    const t = rv.type;
+    switch (t.kind) {
+        .optional => return valueOf(vm, rv.unwrap() orelse return .null),
+        .pointer => {
+            if (t.isString()) if (rv.toString()) |s| return vm.string(s);
+            if (t.info.pointer.size == .one) return valueOf(vm, rv.deref() catch return .null);
+            return listOf(vm, rv);
+        },
+        .slice, .array => {
+            if (t.isString()) if (rv.toString()) |s| return vm.string(s);
+            return listOf(vm, rv);
+        },
+        .@"struct" => {
+            if (vectorLength(t) != null) return toFlux(vm, rv, .null);
+            return copied(vm, rv);
+        },
+        .void, .bool, .int, .float, .@"enum" => return toFlux(vm, rv, .null),
+        else => return copied(vm, rv),
+    }
+}
+
+fn listOf(vm: *Vm, rv: reflect.Value) Error!Value {
+    const n = rv.len() catch return vm.fail("a {s} cannot be handed to a script: how long it is is not known", .{rv.type.name.slice()});
+    const list = try make.list(vm, n, .any);
+    const lv: Value = .fromObj(.list, &list.obj);
+    try vm.pushRoot(lv);
+    defer vm.popRoot();
+    for (0..n) |i| {
+        const item = try valueOf(vm, rv.index(i) catch return vm.fail("a {s} cannot be read at {d}", .{ rv.type.name.slice(), i }));
+        list.items.appendAssumeCapacity(item);
+        vm.heap.barrier(&list.obj, item);
+    }
+    return lv;
+}
+
+fn copied(vm: *Vm, rv: reflect.Value) Error!Value {
+    const t = rv.type;
+    if (t.size == 0 or rv.is_bit_field) return toFlux(vm, rv, .null);
+    const memory = vm.gpa.rawAlloc(t.size, .fromByteUnits(t.alignment), @returnAddress()) orelse return error.OutOfMemory;
+    const from: [*]const u8 = @ptrCast(rv.ptr);
+    @memcpy(memory[0..t.size], from[0..t.size]);
+    const owned: reflect.Value = .init(t, @ptrCast(memory));
+    const v = handleOf(vm, owned, .null) catch |err| {
+        owned.destroy(vm.gpa);
+        return err;
+    };
+    v.as(object.Handle).owned = true;
+    return v;
 }
 
 /// A value of type `T` the script owns, starting at `T`'s default.
@@ -59,6 +179,10 @@ fn floatField(rv: reflect.Value, i: usize) f32 {
 /// A reflected value as a Flux value: scalars copied, vectors made vectors,
 /// anything else a handle into it.
 pub fn toFlux(vm: *Vm, rv: reflect.Value, owner: Value) Error!Value {
+    return toFluxAt(vm, rv, owner, .none);
+}
+
+fn toFluxAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) Error!Value {
     const t = rv.type;
     switch (t.kind) {
         .void => return .null,
@@ -75,28 +199,28 @@ pub fn toFlux(vm: *Vm, rv: reflect.Value, owner: Value) Error!Value {
         },
         .optional => {
             const inner = rv.unwrap() orelse return .null;
-            return toFlux(vm, inner, owner);
+            return toFluxAt(vm, inner, owner, step);
         },
         .pointer => {
             if (t.isString()) if (rv.toString()) |s| return vm.string(s);
             if (t.info.pointer.size == .one) {
                 const pointee = rv.deref() catch return .null;
-                return toFlux(vm, pointee, owner);
+                return toFluxAt(vm, pointee, owner, step);
             }
-            return handleOf(vm, rv, owner);
+            return handleAt(vm, rv, owner, step);
         },
         .slice, .array => {
             if (t.isString()) if (rv.toString()) |s| return vm.string(s);
-            return handleOf(vm, rv, owner);
+            return handleAt(vm, rv, owner, step);
         },
         .@"struct" => {
             if (vectorLength(t)) |n| {
                 if (n == 2) return .vec2(floatField(rv, 0), floatField(rv, 1));
                 return .vec3(floatField(rv, 0), floatField(rv, 1), floatField(rv, 2));
             }
-            return handleOf(vm, rv, owner);
+            return handleAt(vm, rv, owner, step);
         },
-        else => return handleOf(vm, rv, owner),
+        else => return handleAt(vm, rv, owner, step),
     }
 }
 
@@ -156,7 +280,7 @@ pub fn fromFlux(vm: *Vm, rv: reflect.Value, v: Value) Error!void {
                 return;
             }
             if (v.tag == .handle) {
-                rv.copyFrom(v.as(object.Handle).value) catch |err| return check(vm, err, t, v);
+                rv.copyFrom(try resolve(vm, v.as(object.Handle))) catch |err| return check(vm, err, t, v);
                 return;
             }
             return refused(vm, t, v);
@@ -167,7 +291,7 @@ pub fn fromFlux(vm: *Vm, rv: reflect.Value, v: Value) Error!void {
                 return;
             }
             if (v.tag == .handle) {
-                rv.copyFrom(v.as(object.Handle).value) catch |err| return check(vm, err, t, v);
+                rv.copyFrom(try resolve(vm, v.as(object.Handle))) catch |err| return check(vm, err, t, v);
                 return;
             }
             return refused(vm, t, v);
@@ -187,28 +311,29 @@ fn target(rv: reflect.Value) reflect.Value {
 }
 
 pub fn get(vm: *Vm, h: Value, name: []const u8) Error!Value {
-    const rv = target(h.as(object.Handle).value);
+    const rv = target(try resolve(vm, h.as(object.Handle)));
     if (std.mem.eql(u8, name, "len") and (rv.type.kind == .slice or rv.type.kind == .array)) {
         return .int(@intCast(rv.len() catch 0));
     }
-    const f = rv.field(name) catch return noField(vm, rv.type, name);
-    return toFlux(vm, f, h);
+    const i = rv.type.fieldIndex(name) orelse return noField(vm, rv.type, name);
+    const f = rv.fieldAt(i) catch return noField(vm, rv.type, name);
+    return toFluxAt(vm, f, h, .{ .field = @intCast(i) });
 }
 
 pub fn set(vm: *Vm, h: Value, name: []const u8, v: Value) Error!void {
-    const rv = target(h.as(object.Handle).value);
+    const rv = target(try resolve(vm, h.as(object.Handle)));
     const f = rv.field(name) catch return noField(vm, rv.type, name);
     return fromFlux(vm, f, v);
 }
 
 pub fn index(vm: *Vm, h: Value, i: Value) Error!Value {
-    const rv = target(h.as(object.Handle).value);
+    const rv = target(try resolve(vm, h.as(object.Handle)));
     if (i.tag != .int) return vm.fail("an index is an int, not {s}", .{types.typeName(i)});
     const n = rv.len() catch return vm.fail("{s} cannot be indexed", .{rv.type.name.slice()});
     const at = i.asInt();
     if (at < 0 or at >= n) return vm.fail("index {d} is out of bounds for length {d}", .{ at, n });
     const item = rv.index(@intCast(at)) catch return vm.fail("{s} cannot be indexed", .{rv.type.name.slice()});
-    return toFlux(vm, item, h);
+    return toFluxAt(vm, item, h, .{ .element = @intCast(at) });
 }
 
 /// The native that calls reflected method `m` on the handle it is given
@@ -216,34 +341,47 @@ pub fn index(vm: *Vm, h: Value, i: Value) Error!Value {
 pub fn method(vm: *Vm, h: Value, name: []const u8) Error!?Value {
     const rv = target(h.as(object.Handle).value);
     const m = rv.type.method(name) orelse return null;
-    const gop = try vm.reflect_methods.getOrPut(vm.gpa, m);
-    if (!gop.found_existing) {
-        const n = make.native(vm, m.name.slice(), callMethod, 1, null) catch |err| {
-            _ = vm.reflect_methods.remove(m);
-            return err;
-        };
-        n.data = m;
-        gop.value_ptr.* = n;
-    }
-    return .fromObj(.native, &gop.value_ptr.*.obj);
+    if (vm.reflect_methods.get(m)) |n| return .fromObj(.native, &n.obj);
+    // Made before it goes in the map: making it can start a collection, and
+    // the collector marks every entry there.
+    const n = try make.native(vm, m.name.slice(), callMethod, 1, null);
+    n.data = m;
+    try vm.reflect_methods.put(vm.gpa, m, n);
+    return .fromObj(.native, &n.obj);
 }
 
 const max_args = 16;
 
+/// Calls a reflected method with the script's arguments. A parameter of type
+/// `*flux.Vm` is not the script's to give: it is the VM calling. A result of
+/// type `flux.Value` goes back as it is, so a method can hand a script what
+/// only it can make - a handle on a value it found by name.
 fn callMethod(vm: *Vm, args: []Value) Error!Value {
     const n = vm.current_native.?;
     const m: *const reflect.Method = @ptrCast(@alignCast(n.data.?));
     const f = m.type.info.function;
     const params = f.params.slice();
     if (args.len == 0 or args[0].tag != .handle) return vm.fail("`{s}` is called on the value it belongs to", .{m.name.slice()});
-    if (args.len != params.len) return vm.fail("`{s}` takes {d} argument{s}, and was given {d}", .{ m.name.slice(), params.len - 1, if (params.len == 2) "" else "s", args.len - 1 });
+    var wanted: usize = 0;
+    for (params[1..]) |p| {
+        if (!p.type.is(*Vm)) wanted += 1;
+    }
+    if (args.len - 1 != wanted) return vm.fail("`{s}` takes {d} argument{s}, and was given {d}", .{ m.name.slice(), wanted, if (wanted == 1) "" else "s", args.len - 1 });
     if (params.len > max_args) return vm.fail("`{s}` takes too many arguments to call from a script", .{m.name.slice()});
     var storage: [max_args][64]u8 align(16) = undefined;
     var values: [max_args]reflect.Value = undefined;
-    values[0] = target(args[0].as(object.Handle).value);
-    for (params[1..], args[1..], 1..) |p, a, i| {
+    values[0] = target(try resolve(vm, args[0].as(object.Handle)));
+    var next: usize = 1;
+    for (params[1..], 1..) |p, i| {
+        if (p.type.is(*Vm)) {
+            values[i] = .init(p.type, &storage[i]);
+            @as(**Vm, @ptrCast(&storage[i])).* = vm;
+            continue;
+        }
+        const a = args[next];
+        next += 1;
         if (a.tag == .handle and (p.type.kind == .pointer or p.type.kind == .@"struct")) {
-            values[i] = target(a.as(object.Handle).value);
+            values[i] = target(try resolve(vm, a.as(object.Handle)));
             continue;
         }
         if (p.type.size > 64) return vm.fail("argument {d} of `{s}` is too large to pass from a script", .{ i, m.name.slice() });
@@ -254,15 +392,24 @@ fn callMethod(vm: *Vm, args: []Value) Error!Value {
     const ret = f.return_type;
     var result_storage: [64]u8 align(16) = undefined;
     const result: ?reflect.Value = if (ret.kind == .void or ret.size == 0) null else if (ret.size <= 64) .init(ret, &result_storage) else return vm.fail("`{s}` returns a value too large for a script", .{m.name.slice()});
-    reflect.call(m, values[0..args.len], result) catch |err| return vm.fail("`{s}` could not be called: {s}", .{ m.name.slice(), @errorName(err) });
+    reflect.call(m, values[0..params.len], result) catch |err| return vm.fail("`{s}` could not be called: {s}", .{ m.name.slice(), @errorName(err) });
     const r = result orelse return .null;
     if (ret.kind == .error_union) {
-        const held = r.unwrap() orelse return make.errorText(vm, r.errorName() orelse "Error", null);
+        const held = r.unwrap() orelse {
+            const name = r.errorName() orelse "Error";
+            // A method given the VM stops the script the way a native does.
+            if (vm.panic != null and std.mem.eql(u8, name, "Panic")) return error.Panic;
+            if (std.mem.eql(u8, name, "OutOfMemory")) return error.OutOfMemory;
+            return make.errorText(vm, name, null);
+        };
+        if (held.get(Value)) |v| return v;
         return toFlux(vm, held, .null);
     }
+    if (r.get(Value)) |v| return v;
     return toFlux(vm, r, .null);
 }
 
 pub fn format(w: *std.Io.Writer, h: *object.Handle) std.Io.Writer.Error!void {
-    try w.print("{f}", .{h.value});
+    const now = current(h) orelse return w.print("<{s}, gone>", .{h.value.type.name.slice()});
+    try w.print("{f}", .{now});
 }

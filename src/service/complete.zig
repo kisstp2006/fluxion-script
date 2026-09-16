@@ -120,6 +120,7 @@ const Adder = struct {
     }
 
     fn item(ad: *Adder, it: Recorder.Item, rank: u8) Allocator.Error!void {
+        if (it.decl == null) if (ad.a.vm.host_docs.get(it.name)) |doc| return ad.push(it.name, .of(it.kind), "given by the host", doc, rank);
         if (it.kind == .builtin_function) {
             if (docs.find(&docs.prelude, it.name)) |e| return ad.push(it.name, .builtin_function, e.sig, e.doc, rank);
             return ad.push(it.name, .builtin_function, "given by the host", null, rank);
@@ -142,7 +143,13 @@ const Adder = struct {
         const p = ad.a.pool();
         const t = p.isOptional(t0) orelse t0;
         if (p.structOf(t)) |s| {
-            for (s.fields.items) |fd| try ad.declared(fd.name, if (fd.is_signal) .signal else .field, fd.type, .{ .file = fd.file, .span = fd.span }, 0);
+            for (s.fields.items) |fd| {
+                if (fd.host) {
+                    try ad.push(fd.name, .field, "given by the host", fd.doc, 0);
+                } else {
+                    try ad.declared(fd.name, if (fd.is_signal) .signal else .field, fd.type, .{ .file = fd.file, .span = fd.span }, 0);
+                }
+            }
             var at: ?*types.Struct = s;
             while (at) |x| : (at = x.parent) for (x.methods.values()) |m| {
                 if (m.sig.has_self) try ad.declared(m.name, .method, try p.function(m.sig), .{ .file = m.file, .span = m.span }, 0);
