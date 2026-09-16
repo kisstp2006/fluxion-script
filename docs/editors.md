@@ -1,0 +1,178 @@
+# Flux in an editor
+
+Flux knows what each name in a file is while the file is being written:
+what it names, its type, where it is declared, what could come next. Two
+ways in:
+
+- **`flux lsp`** answers the Language Server Protocol on standard input and
+  output, for VS Code, Neovim, Helix, Sublime Text, Emacs, Zed and the rest.
+- **`flux.service`** answers the same questions as function calls, for an
+  editor built into a program - an engine's script editor, the way Godot's
+  asks GDScript. [The IDE](#the-ide) in `examples/ide` is one, on
+  fluxion-ui.
+
+What either gives:
+
+| | |
+| --- | --- |
+| Completions | what is in scope, innermost first; after `x.` the members of `x`'s type; after `Type.` or `module.` what they declare; after `.` where an enum goes, its members; in `Enemy{ . }` the fields not given yet; types where a type goes; `@import` and `@export` after `@` |
+| Hover | the declaration with its types resolved - `fn Enemy.hit(self, amount: int) bool` - and its `///` doc; for what is built in, its signature and what it does |
+| Signature help | the parameters of the call the cursor is in, the current one marked |
+| Definition, references, highlights | through modules too: `enemies.spawn` leads into `enemies.flux` |
+| Outline | structs and enums with their members, functions, variables, tests |
+| Diagnostics | every error and warning the compiler has, with its notes and help, as you type |
+| Semantic colours | each name by what it is: a field, a parameter, a signal, an enum member, a module |
+
+It all comes from the compiler itself, run over the file with a listener
+(`src/compile/Recorder.zig`) in a VM of its own that runs nothing, so what
+the editor says is what `flux run` would. A file that does not parse yet is
+still answered: a statement missing its `;` at the end of a line is kept,
+and the line being typed has its open brackets closed before the compiler
+sees it. A 130-line file is compiled and coloured in about a millisecond
+and a 2,000-line one in about 12; a completion takes under half a
+millisecond in the first and under 5 in the second.
+
+## The IDE
+
+```bash
+zig build ide                     # an untitled script to try it in
+zig build ide -- game.flux        # a file
+```
+
+[`examples/ide`](../examples/ide) is a small editor on
+[fluxion-ui](https://github.com/kisstp2006/fluxion-ui), with the service
+under it the way Godot's script editor has GDScript under it:
+
+- completions as you type, locals first, each with how it is declared and its doc beside the list;
+- the parameters of the call you are in, the one you are on lit; what a name is, when the mouse rests on it;
+- mistakes underlined as they are made, and listed under the code - a click goes to one;
+- the script's members down the left, a click away;
+- F12, or ctrl and a click, to where a name is declared, in another file too;
+- F5 to run the script, its output under the code, and Ctrl+S while it runs to put the new code in while it goes on.
+
+| Key | What it does |
+| --- | --- |
+| Ctrl+Space | complete here |
+| Enter, Tab | take the completion; Up and Down choose, Escape closes |
+| F12, ctrl+click | go to the declaration |
+| F5, Ctrl+S, Ctrl+O | run, save (and reload a running script), open |
+| Ctrl+Z, Ctrl+Y | undo, redo |
+| Ctrl+/ | comment the lines out, or back in |
+| Tab, Shift+Tab | indent the selected lines, or take it away |
+
+It reads a monospaced font of the system's - Consolas, DejaVu Sans Mono -
+or the one `--font file.ttf` names. `--demo complete` (and `signature`,
+`hover`, `problems`, `run`) has it show one of its tricks by itself.
+
+## VS Code
+
+`editors/vscode` is the extension: a TextMate grammar for colours at once,
+and `flux lsp` for the rest.
+
+```bash
+cd editors/vscode
+npm install
+npx @vscode/vsce package
+code --install-extension flux-language-0.1.0.vsix
+```
+
+It runs `flux` from the PATH; the `flux.path` setting points it elsewhere.
+
+## Neovim (0.11 and later)
+
+```lua
+vim.filetype.add({ extension = { flux = "flux" } })
+vim.lsp.config("flux", {
+  cmd = { "flux", "lsp" },
+  filetypes = { "flux" },
+  root_markers = { ".git" },
+})
+vim.lsp.enable("flux")
+```
+
+Semantic colours come on by themselves; `:help lsp-semantic-highlight`
+says how to theme them.
+
+## Helix
+
+In `languages.toml`:
+
+```toml
+[language-server.flux]
+command = "flux"
+args = ["lsp"]
+
+[[language]]
+name = "flux"
+scope = "source.flux"
+file-types = ["flux"]
+comment-token = "//"
+indent = { tab-width = 4, unit = "    " }
+language-servers = ["flux"]
+```
+
+Helix colours with tree-sitter grammars, and Flux has none yet; the rest
+works.
+
+## Sublime Text
+
+With the LSP package, in its settings:
+
+```json
+{
+  "clients": {
+    "flux": {
+      "enabled": true,
+      "command": ["flux", "lsp"],
+      "selector": "source.flux"
+    }
+  }
+}
+```
+
+## Emacs
+
+With eglot:
+
+```elisp
+(define-derived-mode flux-mode prog-mode "Flux")
+(add-to-list 'auto-mode-alist '("\\.flux\\'" . flux-mode))
+(add-to-list 'eglot-server-programs '(flux-mode . ("flux" "lsp")))
+```
+
+## What `flux lsp` does
+
+It keeps each file the editor has open and compiles it again at each
+change, sending its diagnostics then. An import is read from the editor
+when the imported file is open there - so what is typed in `enemies.flux`
+is seen in `main.flux` before it is saved - and from disk otherwise. When a
+file is saved, every open file is compiled again, since it may import it.
+Scripts get the `os` module, as `flux run` gives it. Columns are counted
+the way the client asks: UTF-8 if it offers it, else UTF-16.
+
+## The service, in a program
+
+```zig
+const flux = @import("fluxion_script");
+const service = flux.service;
+
+// Compile a file to ask about it; keep it until the text changes.
+const a = try service.Analysis.init(gpa, "player.flux", text, .{ .setup = .{ .run = giveGameModule } });
+defer a.deinit();
+
+for (a.diagnostics.items.items) |d| ...            // what is wrong
+const tokens = try service.highlight.tokens(a, arena);   // how to colour it
+const hover = try a.hover(arena, cursor);           // what is here
+const decl = a.definition(cursor);                  // where it is declared
+const uses = try a.references(arena, cursor);       // where else it is used
+const outline = try a.symbols(arena);
+
+// These compile a copy of the text with the cursor marked, so they take
+// the text rather than an analysis.
+const items = try service.complete(gpa, arena, "player.flux", text, cursor, options);
+const sig = try service.signatureHelp(gpa, arena, "player.flux", text, cursor, options);
+```
+
+Offsets are bytes into the text. `options.setup` gives each VM the service
+makes what the host gives its scripts - its natives and modules - so that
+`@import("game")` completes; `options.loader` says where imports come from.

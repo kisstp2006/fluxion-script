@@ -1,0 +1,50 @@
+{
+  "name": "flux-language",
+  "displayName": "Flux",
+  "description": "The Flux scripting language: highlighting, completions, hovers, signatures, go to definition and diagnostics, from `flux lsp`.",
+  "version": "0.1.0",
+  "publisher": "fluxion",
+  "license": "BSD-2-Clause",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "flux",
+        "aliases": [
+          "Flux",
+          "flux"
+        ],
+        "extensions": [
+          ".flux"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "flux",
+        "scopeName": "source.flux",
+        "path": "./syntaxes/flux.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Flux",
+      "properties": {
+        "flux.path": {
+          "type": "string",
+          "default": "flux",
+          "description": "The `flux` command: a path to it, or its name on the PATH."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

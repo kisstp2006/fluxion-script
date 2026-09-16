@@ -1,0 +1,140 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Flux",
+  "scopeName": "source.flux",
+  "fileTypes": ["flux"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#types" },
+    { "include": "#calls" },
+    { "include": "#enum-literals" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.documentation.flux", "match": "///.*$" },
+        { "name": "comment.line.double-slash.flux", "match": "//.*$" },
+        { "name": "comment.block.flux", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "escapes": {
+      "name": "constant.character.escape.flux",
+      "match": "\\\\(?:[ntr0\\\\\"'{}]|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})"
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.interpolated.flux",
+          "begin": "f\"",
+          "end": "\"|$",
+          "patterns": [
+            { "include": "#escapes" },
+            { "name": "constant.character.escape.flux", "match": "\\{\\{|\\}\\}" },
+            {
+              "name": "meta.embedded.expression.flux",
+              "begin": "\\{",
+              "end": "(?::[^}\"]*)?\\}",
+              "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.flux" } },
+              "endCaptures": { "0": { "name": "punctuation.section.embedded.end.flux" } },
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.flux",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "name": "string.quoted.single.flux",
+          "begin": "'",
+          "end": "'|$",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        { "name": "string.quoted.other.multiline.flux", "match": "\\\\\\\\.*$" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.flux", "match": "\\b0x[0-9A-Fa-f_]+\\b" },
+        { "name": "constant.numeric.octal.flux", "match": "\\b0o[0-7_]+\\b" },
+        { "name": "constant.numeric.binary.flux", "match": "\\b0b[01_]+\\b" },
+        { "name": "constant.numeric.float.flux", "match": "\\b[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9]+)?\\b" }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.flux" },
+            "2": { "name": "entity.name.function.flux" }
+          }
+        },
+        {
+          "match": "\\b(struct|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.flux" },
+            "2": { "name": "entity.name.type.flux" }
+          }
+        },
+        {
+          "match": "\\b(signal)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.flux" },
+            "2": { "name": "variable.other.event.flux" }
+          }
+        },
+        {
+          "match": "\\b(test)\\s+(?=\")",
+          "captures": { "1": { "name": "storage.type.flux" } }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.flux", "match": "\\b(if|else|while|for|switch|return|break|continue|defer|errdefer|try|catch|orelse|await)\\b" },
+        { "name": "storage.type.flux", "match": "\\b(var|const|fn|struct|enum|signal|test)\\b" },
+        { "name": "storage.modifier.flux", "match": "\\bextends\\b" },
+        { "name": "keyword.operator.word.flux", "match": "\\b(and|or|in|is)\\b" },
+        { "name": "constant.language.flux", "match": "\\b(true|false|null)\\b" },
+        { "name": "variable.language.self.flux", "match": "\\bself\\b" },
+        { "name": "keyword.other.error.flux", "match": "\\berror\\b" }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        { "name": "entity.name.function.macro.flux", "match": "@[A-Za-z_][A-Za-z0-9_]*" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "support.type.primitive.flux", "match": "\\b(int|float|bool|string|void|any|vec2|vec3|color|task)\\b(?!\\s*\\()" },
+        { "name": "entity.name.type.flux", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        { "name": "support.function.builtin.flux", "match": "\\b(print|assert|panic|str|int|float|typeof|vec2|vec3|color|wait|min|max|abs|clamp|range)(?=\\s*\\()" },
+        { "name": "entity.name.function.call.flux", "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*\\()" }
+      ]
+    },
+    "enum-literals": {
+      "patterns": [
+        { "name": "constant.other.enum-member.flux", "match": "(?<![A-Za-z0-9_)\\]])\\.[a-z_][A-Za-z0-9_]*" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.flux", "match": "\\.\\.\\.|\\.\\.=|\\.\\.|\\.\\?|=>|[+\\-*]%=?|<<=?|>>=?|[=!<>]=|[-+*/%&|^~!<>=]=?" }
+      ]
+    }
+  }
+}

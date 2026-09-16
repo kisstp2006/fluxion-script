@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-2-Clause
+
+.{
+    .name = .fluxion_script,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0xda72f72e2a83ddae,
+    // The commits fluxion-reflect and fluxion-engine pin, so a game gets one
+    // copy of each.
+    .dependencies = .{
+        .fluxion_text = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-text#41010ffb170fb13a72cc1751ee6031f8d1eebb6f",
+            .hash = "fluxion_text-0.1.0-cIhfioG2AgAJJ9hB0dOMWhHvk6ConZmD0OTreG41NoLX",
+        },
+        .fluxion_hash = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-hash#d7211dc2a0e961a67ffb070f45e6089b8125069c",
+            .hash = "fluxion_hash-0.1.0-Zu520_IkAQCn0T4xz2CCSD724jkXcbzZBb_dFirBrjS2",
+        },
+        .fluxion_json = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-json#1d8cb5bb6184636dc3dd0b07a5b4fbe3af41a8b4",
+            .hash = "fluxion_json-0.1.0-sFlLPe9uBQDchSsbl8_C6tWxkEDIgARGF-SziCP3_P_h",
+        },
+        .fluxion_reflect = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-reflect#07c7efbd04be742d0a44c4c83f89cfb72092ef1b",
+            .hash = "fluxion_reflect-0.1.0-Aw2l_yWFBQAb5Js-wIcSOqHOsInw5YBn0StLvdqagJ-h",
+        },
+
+        // What the mini IDE in `examples/ide` draws with: a window, a GPU, a
+        // font and fluxion-ui. Lazy, and asked for only when this is the
+        // package being built, so a game using the language never fetches
+        // them. The commits fluxion-ui pins, so each is one package.
+        .fluxion_ui = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-ui#6d6fe693a937d34596ff0e348dea615c6f298ee1",
+            .hash = "fluxion_ui-0.1.0-lw4Ws-8ZDgDQQhj1Ngfz7mnLm3iZXRy0a2wu6QnXDMGc",
+            .lazy = true,
+        },
+        .fluxion_platform = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-platform#f59b5bc8c504a1abb0fc0e1e5807f9cc364dc39a",
+            .hash = "fluxion_platform-0.1.0-WsOjUZ3mEwCC2n9VdBIhaYA07ujr8aTEpynZq4CSOmeR",
+            .lazy = true,
+        },
+        .fluxion_rhi = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-rhi#5ba39058c8334cee35f3b209a648c634c6776cf3",
+            .hash = "fluxion_rhi-0.1.0--pvwD-e8BADncd8vWuzTWsJoN-iTu-CcJmysypgstbuQ",
+            .lazy = true,
+        },
+        .fluxion_font = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-font#38615f1e07dcb7ddaa0959ef4ea27a1ea115ac2d",
+            .hash = "fluxion_font-0.1.0-f3pT4n3pAwChQk8rk88uwmL4cZDTLTwWBXcu-VUqvM5K",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "include",
+        "examples",
+        "tests",
+        "README.md",
+        "LICENSE",
+    },
+}
