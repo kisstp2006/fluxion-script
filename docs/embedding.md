@@ -124,6 +124,10 @@ pub fn get(self: *EntityRef, vm: *flux.Vm, component: []const u8) !flux.Value {
 The script does not pass the VM, and a panic the method raises with
 `vm.fail` stops the script as a native's does.
 
+What a method returns by value - a struct, a slice - is copied into the
+script's own, as `vm.valueOf` copies, so it outlives the call. What it
+returns by pointer is a handle into the host's value, as `vm.handle` makes.
+
 A handle points at the value where it was when the handle was made. A value
 that moves - a component in storage that is compacted and grown - wants a
 *live* handle, which the host looks up again each time a script uses it:
@@ -184,6 +188,26 @@ engine has only as a `fluxion_reflect.Value` into the script's own - numbers,
 strings and vectors converted, a slice as a list, anything else copied into
 a handle the collector owns - and `vm.reflectOf(handle)` gives the host what
 a handle stands for now.
+
+Some of the host's types are better seen as something else. An entity is
+eight bytes to an engine, and to a script it is the handle `self.entity`
+is, the same one each time. `Vm.Options.host_types` names such types, each
+with its two conversions, and they are asked before anything else whenever
+a value of the type crosses: a field read or written through a handle, a
+reflected method's argument or result, and `vm.valueOf`.
+
+```zig
+const entity_type: flux.HostType = .{
+    .type = fluxion_reflect.typeOf(Entity),
+    .to_script = entityToScript,     // fn (vm, fluxion_reflect.Value) Vm.Error!Value
+    .from_script = entityFromScript, // fn (vm, into: fluxion_reflect.Value, Value) Vm.Error!void
+};
+const vm = try flux.Vm.create(gpa, .{ .host_types = &.{entity_type} });
+```
+
+The conversions find the host's own state through `vm.host`. A value that
+is not of the type is theirs to refuse, with `vm.fail` and a message saying
+what was wanted.
 
 `flux.methodsOf(class, &buffer)` and `flux.signalsOf(class, &buffer)` list
 what a struct has, its own first and then each parent's, in the order

@@ -97,12 +97,14 @@ fn resolve(vm: *Vm, h: *const object.Handle) Error!reflect.Value {
 }
 
 /// A value the host has as a `fluxion_reflect.Value`, as a script's own, so
-/// that the memory it came from can go right after: scalars, enums, strings
-/// and vectors converted, a slice or an array as a list of its elements
-/// converted, and anything else copied into a handle the collector owns. A
-/// copied struct's own pointers and slices point where they did.
+/// that the memory it came from can go right after: a host's type as the
+/// host says, scalars, enums, strings and vectors converted, a slice or an
+/// array as a list of its elements converted, and anything else copied into
+/// a handle the collector owns. A copied struct's own pointers and slices
+/// point where they did.
 pub fn valueOf(vm: *Vm, rv: reflect.Value) Error!Value {
     const t = rv.type;
+    if (hostType(vm, t)) |host| return host.to_script(vm, rv);
     switch (t.kind) {
         .optional => return valueOf(vm, rv.unwrap() orelse return .null),
         .pointer => {
@@ -177,13 +179,22 @@ fn floatField(rv: reflect.Value, i: usize) f32 {
 }
 
 /// A reflected value as a Flux value: scalars copied, vectors made vectors,
-/// anything else a handle into it.
+/// a host's type as the host says, anything else a handle into it.
 pub fn toFlux(vm: *Vm, rv: reflect.Value, owner: Value) Error!Value {
     return toFluxAt(vm, rv, owner, .none);
 }
 
+/// How the host has a type of its own seen, if it does. See `Vm.HostType`.
+fn hostType(vm: *const Vm, t: *const reflect.Type) ?*const Vm.HostType {
+    for (vm.options.host_types) |*host| {
+        if (host.type.same(t)) return host;
+    }
+    return null;
+}
+
 fn toFluxAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) Error!Value {
     const t = rv.type;
+    if (hostType(vm, t)) |host| return host.to_script(vm, rv);
     switch (t.kind) {
         .void => return .null,
         .bool => return .boolean(rv.toBool() orelse false),
@@ -241,6 +252,7 @@ fn check(vm: *Vm, err: reflect.Error, t: *const reflect.Type, v: Value) Error {
 /// Writes a Flux value into a reflected one, converting it to the type.
 pub fn fromFlux(vm: *Vm, rv: reflect.Value, v: Value) Error!void {
     const t = rv.type;
+    if (hostType(vm, t)) |host| return host.from_script(vm, rv, v);
     switch (t.kind) {
         .bool => {
             if (v.tag != .bool) return refused(vm, t, v);
@@ -380,7 +392,7 @@ fn callMethod(vm: *Vm, args: []Value) Error!Value {
         }
         const a = args[next];
         next += 1;
-        if (a.tag == .handle and (p.type.kind == .pointer or p.type.kind == .@"struct")) {
+        if (a.tag == .handle and hostType(vm, p.type) == null and (p.type.kind == .pointer or p.type.kind == .@"struct")) {
             values[i] = target(try resolve(vm, a.as(object.Handle)));
             continue;
         }
@@ -403,10 +415,22 @@ fn callMethod(vm: *Vm, args: []Value) Error!Value {
             return make.errorText(vm, name, null);
         };
         if (held.get(Value)) |v| return v;
-        return toFlux(vm, held, .null);
+        return resultOf(vm, held);
     }
     if (r.get(Value)) |v| return v;
-    return toFlux(vm, r, .null);
+    return resultOf(vm, r);
+}
+
+/// A method's result as a script's value. The result is in the call's own
+/// storage, which is gone once the call returns: a value is copied out, as
+/// `valueOf` copies, and only what a pointer leads to - the host's memory,
+/// which stays - is handed over as a handle into it.
+fn resultOf(vm: *Vm, r: reflect.Value) Error!Value {
+    var at = r;
+    while (at.type.kind == .optional) at = at.unwrap() orelse return .null;
+    const t = at.type;
+    if (t.kind == .pointer and t.info.pointer.size == .one) return toFlux(vm, at, .null);
+    return valueOf(vm, at);
 }
 
 pub fn format(w: *std.Io.Writer, h: *object.Handle) std.Io.Writer.Error!void {

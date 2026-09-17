@@ -33,6 +33,8 @@ pub const FileLoader = @import("api.zig").FileLoader;
 pub const Member = @import("api.zig").Member;
 pub const HostValue = @import("api.zig").HostValue;
 pub const Resolver = object.Resolver;
+/// One of the host's types as a script sees it. See `Vm.HostType`.
+pub const HostType = Vm.HostType;
 pub const classOf = @import("api.zig").classOf;
 pub const methodsOf = @import("api.zig").methodsOf;
 pub const signalsOf = @import("api.zig").signalsOf;

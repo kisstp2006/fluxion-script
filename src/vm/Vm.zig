@@ -11,6 +11,7 @@ const strings = @import("strings.zig");
 const types = @import("types.zig");
 const Fiber = @import("fiber.zig").Fiber;
 const gc = @import("gc.zig");
+const reflect = @import("fluxion_reflect");
 
 pub const Value = value_mod.Value;
 pub const Tag = value_mod.Tag;
@@ -51,6 +52,24 @@ pub const Options = struct {
     /// hears its scripts' signals without connecting to each. An error it
     /// returns stops the script that emitted, as a native's does.
     on_emit: ?*const fn (vm: *Vm, instance: Value, signal: []const u8, args: []const Value) Error!void = null,
+    /// Types of the host's that a script sees as something else: an engine's
+    /// entity as the handle its scripts know entities by. See `HostType`.
+    host_types: []const HostType = &.{},
+};
+
+/// One of the host's types as a script sees it. Asked first whenever a
+/// value of the type crosses between the host and a script: a field read or
+/// written through a handle, a reflected method's argument or result, and
+/// `valueOf`. The functions read and write the value itself, of `type`.
+pub const HostType = struct {
+    type: *const reflect.Type,
+    /// The value as the script's. `vm.host` is the host's, to find its
+    /// own things by.
+    to_script: *const fn (vm: *Vm, value: reflect.Value) Error!Value,
+    /// The script's value written into the host's. One that is not of this
+    /// type is the host's to refuse, with `vm.fail` and a message saying
+    /// what was wanted.
+    from_script: *const fn (vm: *Vm, into: reflect.Value, value: Value) Error!void,
 };
 
 pub const TraceFrame = struct {
@@ -113,7 +132,7 @@ host: ?*anyopaque = null,
 /// The `os` module's, when the host gave scripts one.
 os_host: ?*anyopaque = null,
 /// One native for each reflected method a script has called.
-reflect_methods: std.AutoHashMapUnmanaged(*const @import("fluxion_reflect").Method, *object.Native) = .empty,
+reflect_methods: std.AutoHashMapUnmanaged(*const reflect.Method, *object.Native) = .empty,
 /// Whether loops count their rounds: set while a budget or an interrupt
 /// can stop a script, so an unguarded loop pays one test per round.
 guarded: std.atomic.Value(bool) = .init(false),
