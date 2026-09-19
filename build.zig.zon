@@ -21,8 +21,8 @@
             .hash = "fluxion_json-0.1.0-sFlLPe9uBQDchSsbl8_C6tWxkEDIgARGF-SziCP3_P_h",
         },
         .fluxion_reflect = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-reflect#07c7efbd04be742d0a44c4c83f89cfb72092ef1b",
-            .hash = "fluxion_reflect-0.1.0-Aw2l_yWFBQAb5Js-wIcSOqHOsInw5YBn0StLvdqagJ-h",
+            .url = "git+https://github.com/kisstp2006/fluxion-reflect#6dc45eeaa9b8677af827270867eddcbbd64bdde8",
+            .hash = "fluxion_reflect-0.1.0-Aw2l_wugBQC1UIhNQyVJAGotzkqCowd4JhGpSc8HrXN6",
         },
 
         // What the mini IDE in `examples/ide` draws with: a window, a GPU, a
