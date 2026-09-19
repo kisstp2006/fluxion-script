@@ -30,23 +30,23 @@
         // package being built, so a game using the language never fetches
         // them. The commits fluxion-ui pins, so each is one package.
         .fluxion_ui = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-ui#6d6fe693a937d34596ff0e348dea615c6f298ee1",
-            .hash = "fluxion_ui-0.1.0-lw4Ws-8ZDgDQQhj1Ngfz7mnLm3iZXRy0a2wu6QnXDMGc",
+            .url = "git+https://github.com/kisstp2006/fluxion-ui#2ffcf17884fa9b8920b28b5ff11ee7066c1da28c",
+            .hash = "fluxion_ui-0.1.0-lw4Ws99jDgBT_hPS-_kGCtHt5xTMhFfVsIAV3neWN1Yp",
             .lazy = true,
         },
         .fluxion_platform = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-platform#f59b5bc8c504a1abb0fc0e1e5807f9cc364dc39a",
-            .hash = "fluxion_platform-0.1.0-WsOjUZ3mEwCC2n9VdBIhaYA07ujr8aTEpynZq4CSOmeR",
+            .url = "git+https://github.com/kisstp2006/fluxion-platform#65f360fa3484c241438def3856c5b48b4a3e8cc9",
+            .hash = "fluxion_platform-0.1.0-WsOjUR1ZFwANXOiIAk3n_vA70LebrBMH_PV2d4GPkjyB",
             .lazy = true,
         },
         .fluxion_rhi = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-rhi#5ba39058c8334cee35f3b209a648c634c6776cf3",
-            .hash = "fluxion_rhi-0.1.0--pvwD-e8BADncd8vWuzTWsJoN-iTu-CcJmysypgstbuQ",
+            .url = "git+https://github.com/kisstp2006/fluxion-rhi#fcacf7bdb59fe17bebba3931457dbc50ce33e554",
+            .hash = "fluxion_rhi-0.1.0--pvwDyreBAD3zimVoEHTTd5BhOtXewjOEF_1D75nhG9o",
             .lazy = true,
         },
         .fluxion_font = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-font#38615f1e07dcb7ddaa0959ef4ea27a1ea115ac2d",
-            .hash = "fluxion_font-0.1.0-f3pT4n3pAwChQk8rk88uwmL4cZDTLTwWBXcu-VUqvM5K",
+            .url = "git+https://github.com/kisstp2006/fluxion-font#f666e62f498e5bfe04361c7f1bf6531334a51dbf",
+            .hash = "fluxion_font-0.1.0-f3pT4rn1AwBbbEom4emICxRn1vGPQvsRhUc0_lCawLB8",
             .lazy = true,
         },
     },
