@@ -314,6 +314,9 @@ pub const Task = struct {
     waiters: std.ArrayList(*Task) = .empty,
     waiting_on: Value = .null,
     wake_at: f64 = 0,
+    /// Whose it is, as the host counts: what `Vm.task_owner` was when it
+    /// started, or the task that started it's. See `api.updateHolding`.
+    owner: u64 = 0,
     failure: ?[]const u8 = null,
     /// Why the task this one waited for failed: raised at its `await` when
     /// it runs on.

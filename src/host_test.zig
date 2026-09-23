@@ -63,6 +63,39 @@ fn field(v: Value, name: []const u8) Value {
     unreachable;
 }
 
+test "a task started for an owner the host holds waits while it is held, and so do the tasks it starts" {
+    const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
+    defer vm.destroy();
+    const m = try vm.load("bells.flux",
+        \\var rang = 0;
+        \\fn bell(by: int) { await wait(1.0); rang += by; }
+        \\fn chime() { bell(100); await wait(0.0); }
+    );
+    const Paused = struct {
+        fn held(_: ?*anyopaque, owner: u64) bool {
+            return owner == 7;
+        }
+    };
+    const paused: Vm.Held = .{ .held = Paused.held };
+
+    const before = vm.setTaskOwner(7);
+    _ = try vm.callName(m, "bell", &.{.int(1)});
+    // Started by a task of the held owner: held along with it.
+    _ = try vm.callName(m, "chime", &.{});
+    try testing.expectEqual(@as(u64, 7), vm.setTaskOwner(before));
+    _ = try vm.callName(m, "bell", &.{.int(10)});
+
+    try vm.updateHolding(0.6, paused);
+    try vm.updateHolding(0.6, paused);
+    // The one nobody holds rang; the held ones have their whole second left.
+    try testing.expectEqual(@as(i64, 10), vm.get(m, "rang").?.asInt());
+
+    try vm.update(0.6);
+    try testing.expectEqual(@as(i64, 10), vm.get(m, "rang").?.asInt());
+    try vm.update(0.5);
+    try testing.expectEqual(@as(i64, 111), vm.get(m, "rang").?.asInt());
+}
+
 test "a host makes an instance with its defaults, and calls what it declares" {
     const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
     defer vm.destroy();

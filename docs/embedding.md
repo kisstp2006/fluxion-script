@@ -221,6 +221,24 @@ A script's `await wait(1.0)` waits on the host's clock: call
 `vm.update(dt)` once a frame with the seconds since the last, and the
 tasks whose time has come run on.
 
+A host that pauses some things and not others gives each task an owner and
+holds the owners it has paused:
+
+```zig
+const before = vm.setTaskOwner(entity_id);   // tasks started now are this one's
+_ = try vm.call(method, args);
+_ = vm.setTaskOwner(before);
+
+try vm.updateHolding(dt, .{ .context = game, .held = isPaused });
+```
+
+A task started by another task takes that task's owner; one started from
+outside any has whatever `setTaskOwner` last said, `0` at first. While its
+owner is held a task's wait stands still - it neither wakes nor comes nearer
+to waking - and it picks up where it was once it is not. A task woken by a
+signal or by another task finishing wakes either way: what woke it is
+running.
+
 A mistake at run time returns `error.Panic` from the call that met it.
 `vm.panic` holds the message and every frame; `vm.writePanic(w, .{})`
 prints it with the line, and `vm.clearPanic()` lets the program go on -

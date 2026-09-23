@@ -53,6 +53,22 @@ pub const Scheduler = struct {
         };
     }
 
+    /// Push back the wait of every task whose owner `held` says is held, by
+    /// `dt`, and keep the list in order.
+    pub fn hold(s: *Scheduler, dt: f64, context: ?*anyopaque, held: *const fn (context: ?*anyopaque, owner: u64) bool) void {
+        var moved = false;
+        for (s.timers.items) |t| {
+            if (!held(context, t.owner)) continue;
+            t.wake_at += dt;
+            moved = true;
+        }
+        if (moved) std.sort.insertion(*Task, s.timers.items, {}, earlier);
+    }
+
+    fn earlier(_: void, a: *Task, b: *Task) bool {
+        return a.wake_at < b.wake_at;
+    }
+
     /// The first task whose time has come, taken off the list.
     pub fn due(s: *Scheduler) ?*Task {
         if (s.timers.items.len == 0) return null;

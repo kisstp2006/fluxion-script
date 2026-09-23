@@ -84,6 +84,39 @@ pub fn update(vm: *Vm, dt: f64) Vm.Error!void {
     return call_mod.update(vm, dt);
 }
 
+/// Which tasks a host keeps from moving on: asked of each waiting task's
+/// owner, the number `setTaskOwner` gave it - `0` for none - as each
+/// `updateHolding` begins.
+pub const Held = struct {
+    context: ?*anyopaque = null,
+    held: *const fn (context: ?*anyopaque, owner: u64) bool,
+};
+
+/// `update`, with the tasks whose owner is held kept where they are: a
+/// wait of one of them does not come nearer while it is held, and picks up
+/// where it was once it is not. What a game engine pauses a paused thing's
+/// `await wait(1.0)` by. A task woken by a signal or another task wakes
+/// whether its owner is held or not.
+pub fn updateHolding(vm: *Vm, dt: f64, held: Held) Vm.Error!void {
+    return call_mod.updateHolding(vm, dt, held);
+}
+
+/// The owner every task started from now on is given - unless it is
+/// started by another task, whose owner it takes - and the one there was
+/// before, to put back. The host's to count: an engine gives the entity
+/// whose script it is calling, so the task belongs to it.
+///
+/// ```zig
+/// const before = vm.setTaskOwner(entity_id);
+/// defer _ = vm.setTaskOwner(before);
+/// _ = try vm.call(method, args);
+/// ```
+pub fn setTaskOwner(vm: *Vm, owner: u64) u64 {
+    const before = vm.task_owner;
+    vm.task_owner = owner;
+    return before;
+}
+
 // ---------------------------------------------------------------------------
 // A script's structs, from the host: what an engine needs to put a script on
 // an entity, call into it, and wire its signals.

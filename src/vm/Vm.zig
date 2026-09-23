@@ -113,6 +113,9 @@ methods: std.EnumArray(BuiltinType, std.AutoHashMapUnmanaged(*object.String, Val
 main: Fiber,
 fiber: *Fiber = undefined,
 task: ?*object.Task = null,
+/// The owner a task started from outside any task is given: see
+/// `api.setTaskOwner`.
+task_owner: u64 = 0,
 roots: std.ArrayList(Value) = .empty,
 held: std.AutoHashMapUnmanaged(*Obj, u32) = .empty,
 panic: ?Panic = null,
@@ -184,6 +187,9 @@ pub const get = api.get;
 pub const call = api.call;
 pub const callName = api.callName;
 pub const update = api.update;
+pub const updateHolding = api.updateHolding;
+pub const Held = api.Held;
+pub const setTaskOwner = api.setTaskOwner;
 pub const writeDiagnostics = api.writeDiagnostics;
 pub const writePanic = api.writePanic;
 pub const define = api.define;

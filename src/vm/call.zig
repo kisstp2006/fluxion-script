@@ -203,6 +203,7 @@ pub fn spawn(vm: *Vm, c: *object.Closure, args: []const Value) Error!Value {
     const p = c.proto;
     if (args.len < p.required or args.len > p.params) return badArity(vm, p, args.len);
     const t = try make.task(vm);
+    t.owner = if (vm.task) |parent| parent.owner else vm.task_owner;
     const tv: Value = .fromObj(.task, &t.obj);
     try vm.pushRoot(tv);
     defer vm.popRoot();
@@ -349,6 +350,14 @@ pub fn prepareAwait(vm: *Vm, into: *Value, v: Value) Error!Wait {
 
 /// Moves time on and wakes every task whose wait is over, earliest first.
 pub fn update(vm: *Vm, dt: f64) Error!void {
+    return updateHolding(vm, dt, null);
+}
+
+/// `update`, with the tasks whose owner `held` says so kept where they are:
+/// their waits are pushed back by `dt`, so they neither wake nor come
+/// nearer to it.
+pub fn updateHolding(vm: *Vm, dt: f64, held: ?@import("../api.zig").Held) Error!void {
+    if (held) |asked| vm.scheduler.hold(dt, asked.context, asked.held);
     vm.scheduler.time += dt;
     while (vm.scheduler.due()) |t| {
         try vm.pushRoot(.fromObj(.task, &t.obj));
