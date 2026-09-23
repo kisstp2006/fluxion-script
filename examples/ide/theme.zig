@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! The IDE's colours: a dark window around the code, whose own colours -
-//! Godot's for GDScript - are the language's view's `Theme.dark`.
+//! The IDE's colours: a dark window around the code, whose own colours are
+//! the language's view's `Theme.dark`.
 
 const ui = @import("fluxion_ui");
 

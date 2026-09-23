@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! Flux - a scripting language for games and applications, with Zig's and
-//! C's syntax, GDScript's ideas and Python's reach.
+//! C's syntax, signals and coroutines built in, and Python's reach.
 
 pub const diag = @import("diag.zig");
 

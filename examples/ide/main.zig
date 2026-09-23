@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! A small IDE for Flux, on fluxion-ui: the language service under an
-//! editor, the way Godot's script editor has GDScript under it.
+//! editor.
 //!
 //! ```bash
 //! zig build ide                       an untitled script to try things in

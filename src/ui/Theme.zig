@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! The colours a code view draws with. `dark` colours Flux the way Godot's
-//! script editor colours GDScript; a program with colours of its own starts
-//! from it and changes what it has - its popups', its selection's - and
-//! keeps the code's.
+//! The colours a code view draws with. `dark` colours Flux on a dark
+//! background; a program with colours of its own starts from it and changes
+//! what it has - its popups', its selection's - and keeps the code's.
 
 const ui = @import("fluxion_ui");
 const service = @import("fluxion_script").service;

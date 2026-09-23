@@ -4,7 +4,7 @@
 //! the buffer, where the view is scrolled to, and what the language service
 //! said of the text - its colours, its mistakes, its outline - kept as of the
 //! text's last change. Completions, signatures and hovers are asked for as
-//! they are wanted, the way Godot's script editor asks GDScript.
+//! they are wanted.
 //!
 //! Nothing here draws. Widths come from the interface through `Metrics`,
 //! measured, so any font will do; `fluxion_script_ui` is the view on

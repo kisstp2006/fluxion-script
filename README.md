@@ -75,7 +75,7 @@ fn loadLevel(path: string) !Level {
 - 🔎 **Typed where you say.** Give a type and the compiler checks it before the program starts; leave it out and the value is checked where it meets typed code. Typed code runs on typed instructions.
 - 🩺 **Mistakes that say where and what.** Every error has the line, a caret, what was wanted and what was found, and often what to write. A runtime error comes with the stack of calls that led there.
 - 🔥 **Reloaded while it runs.** Save a script and the game goes on with the new code: instances keep their identity and get new fields, variables keep their values.
-- 💻 **Known to editors.** Completions, hovers with docs, signatures, go to definition and errors as you type, from the compiler itself - through `flux lsp`, or called in-process the way Godot's script editor asks GDScript.
+- 💻 **Known to editors.** Completions, hovers with docs, signatures, go to definition and errors as you type, from the compiler itself - through `flux lsp`, or called in-process by an editor built into the program.
 - ⚡ **Fast.** A register machine, typed instructions, inline caches, an incremental collector: level with Lua 5.4 - ahead on three of the benchmarks here, within 15% on the other three - and two to eight times ahead of Python.
 - 🧯 **Kept in its place.** A budget of loop rounds, an interrupt from any thread, a memory ceiling; no files unless the host gives them.
 - 🧩 **Small to embed.** One Zig module, or a static library and a header for C. No global state: as many VMs as you like.

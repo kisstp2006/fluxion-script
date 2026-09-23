@@ -6,9 +6,9 @@
 //! answered by compiling the file with a `compile/Recorder.zig` listening,
 //! in a VM of its own that runs nothing.
 //!
-//! An editor in the same program calls it directly, the way Godot's script
-//! editor asks GDScript; `examples/ide` does. Other editors ask `flux lsp`,
-//! which answers the Language Server Protocol with these.
+//! An editor in the same program calls it directly, as `examples/ide` does.
+//! Other editors ask `flux lsp`, which answers the Language Server Protocol
+//! with these.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

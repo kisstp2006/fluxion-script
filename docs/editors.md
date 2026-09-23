@@ -7,10 +7,9 @@ ways in:
 - **`flux lsp`** answers the Language Server Protocol on standard input and
   output, for VS Code, Neovim, Helix, Sublime Text, Emacs, Zed and the rest.
 - **`flux.service`** answers the same questions as function calls, for an
-  editor built into a program - an engine's script editor, the way Godot's
-  asks GDScript. [`flux.edit`](#the-editor-in-a-program) is such an editor,
-  ready made, and [the IDE](#the-ide) in `examples/ide` is a window around
-  it.
+  editor built into a program - an engine's script editor.
+  [`flux.edit`](#the-editor-in-a-program) is such an editor, ready made, and
+  [the IDE](#the-ide) in `examples/ide` is a window around it.
 
 What either gives:
 
@@ -42,7 +41,7 @@ zig build ide -- game.flux        # a file
 
 [`examples/ide`](../examples/ide) is a small editor on
 [fluxion-ui](https://github.com/kisstp2006/fluxion-ui), with the service
-under it the way Godot's script editor has GDScript under it:
+under it:
 
 - completions as you type, locals first, each with how it is declared and its doc beside the list;
 - the parameters of the call you are in, the one you are on lit; what a name is, when the mouse rests on it;

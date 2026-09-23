@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! The hash table behind a map: entries kept in the order they were added,
-//! as Python's and GDScript's dictionaries keep them, found through an
+//! as Python's dictionaries keep them, found through an
 //! index of slots. A float key with a whole value is stored as the int, so
 //! `m[1]` and `m[1.0]` are one entry.
 

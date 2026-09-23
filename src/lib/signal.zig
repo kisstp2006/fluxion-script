@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! Signals, as GDScript has them: `signal died(by: ?Actor);` in a struct,
-//! `self.died.connect(f)`, `self.died.emit(x)`, and `await self.died`.
+//! Signals: `signal died(by: ?Actor);` in a struct, `self.died.connect(f)`,
+//! `self.died.emit(x)`, and `await self.died`.
 
 const std = @import("std");
 
