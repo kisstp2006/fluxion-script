@@ -518,12 +518,46 @@ const Clock = struct {
     ticks: i64 = 0,
 
     var timeout: Value = .null;
+    var label: i64 = 0;
 
     fn member(_: *Vm, _: Value, name: []const u8) Vm.Error!?Value {
         if (std.mem.eql(u8, name, "timeout")) return timeout;
+        if (std.mem.eql(u8, name, "label")) return .int(label);
         return null;
     }
+
+    fn setMember(vm: *Vm, _: Value, name: []const u8, value: Value) Vm.Error!bool {
+        if (!std.mem.eql(u8, name, "label")) return false;
+        if (value.tag != .int) return vm.fail("a clock's label is a number", .{});
+        label = value.asInt();
+        return true;
+    }
 };
+
+test "a member the host keeps besides a handle's fields is written through the host" {
+    const vm = try Vm.create(testing.allocator, .{ .host_member = Clock.member, .host_set_member = Clock.setMember });
+    defer vm.destroy();
+    var clock: Clock = .{};
+    try vm.defineGlobal("clock", try vm.handle(&clock), null);
+    Clock.label = 0;
+    const m = try vm.load("label.flux",
+        \\fn name() int {
+        \\    clock.label = 12;
+        \\    clock.ticks = 3;
+        \\    return clock.label + clock.ticks;
+        \\}
+        \\fn wrong() { clock.label = "twelve"; }
+        \\fn missing() { clock.nothing = 1; }
+    );
+    try testing.expectEqual(@as(i64, 15), (try vm.callName(m, "name", &.{})).asInt());
+    try testing.expectEqual(@as(i64, 12), Clock.label);
+    try testing.expectError(error.Panic, vm.callName(m, "wrong", &.{}));
+    try testing.expectEqualStrings("a clock's label is a number", vm.panic.?.message);
+    vm.clearPanic();
+    try testing.expectError(error.Panic, vm.callName(m, "missing", &.{}));
+    try testing.expectEqualStrings("host_test.Clock has no field `nothing`", vm.panic.?.message);
+    vm.clearPanic();
+}
 
 test "a member the host gives a handle besides its fields: a signal a script awaits" {
     const vm = try Vm.create(testing.allocator, .{ .host_member = Clock.member });

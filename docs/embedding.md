@@ -246,6 +246,9 @@ are `vm.newSignal(name, arity)`: a signal a script connects to, `once`s and
 `Vm.Options.host_member` is asked for a member of a handle that is none of
 its fields - `timer.timeout` on a component whose struct has no such field:
 a value to give the script, or null for the usual "has no field" panic.
+`Vm.Options.host_set_member` is asked the same when such a member is
+written - `label.text = "Hi"` on a component whose words the host keeps
+beside it - and says whether it took the value.
 And a reflected method's parameter of type `flux.Value` takes what the
 script passed as it is - a function to call later, a signal, an instance.
 

@@ -337,7 +337,10 @@ pub fn get(vm: *Vm, h: Value, name: []const u8) Error!Value {
 
 pub fn set(vm: *Vm, h: Value, name: []const u8, v: Value) Error!void {
     const rv = target(try resolve(vm, h.as(object.Handle)));
-    const f = rv.field(name) catch return noField(vm, rv.type, name);
+    const f = rv.field(name) catch {
+        if (vm.options.host_set_member) |hook| if (try hook(vm, h, name, v)) return;
+        return noField(vm, rv.type, name);
+    };
     return fromFlux(vm, f, v);
 }
 

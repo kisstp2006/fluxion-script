@@ -60,6 +60,10 @@ pub const Options = struct {
     /// `timer.timeout`. Null when the host has nothing by that name, and the
     /// script is told so.
     host_member: ?*const fn (vm: *Vm, handle: Value, name: []const u8) Error!?Value = null,
+    /// The same, for a member written: `label.text = "Hi"` on a component
+    /// whose words the host keeps beside it. True when the host took it,
+    /// false for the usual "has no field" panic.
+    host_set_member: ?*const fn (vm: *Vm, handle: Value, name: []const u8, value: Value) Error!bool = null,
 };
 
 /// One of the host's types as a script sees it. Asked first whenever a
