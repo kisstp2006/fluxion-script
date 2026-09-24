@@ -222,6 +222,7 @@ pub const disconnectSignal = api.disconnectSignal;
 pub const emitSignal = api.emitSignal;
 pub const newSignal = api.newSignal;
 pub const newColor = api.newColor;
+pub const newList = api.newList;
 pub const emitSignalValue = api.emitSignalValue;
 pub const setField = api.setField;
 pub const getField = api.getField;

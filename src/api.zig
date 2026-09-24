@@ -215,6 +215,9 @@ pub const FieldInfo = struct {
     /// For a list, what its items are; `any` for a list of anything, and for
     /// anything but a list.
     element: FieldKind = .any,
+    /// For a list, what its items are checked against: what `newList` makes
+    /// one the field takes with.
+    element_check: types_mod.Check = .any,
     /// An enum's member names, for `kind == .enum_member`.
     members: []const *object.String = &.{},
     /// The enum, for `kind == .enum_member`: see `enumMember`.
@@ -245,6 +248,7 @@ pub fn fieldsOf(vm: *const Vm, class: Value, into: []FieldInfo) []FieldInfo {
             .kind = shape.kind,
             .nullable = shape.nullable,
             .element = shape.element,
+            .element_check = shape.element_check,
             .members = shape.members,
             .enum_type = shape.enum_type,
             .default = f.default,
@@ -260,6 +264,7 @@ const Shape = struct {
     kind: FieldKind,
     nullable: bool = false,
     element: FieldKind = .any,
+    element_check: types_mod.Check = .any,
     members: []const *object.String = &.{},
     enum_type: ?*object.EnumType = null,
 };
@@ -283,7 +288,7 @@ fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
                 shape.nullable = true;
                 break :blk shape;
             },
-            .list_of => |item| .{ .kind = .list, .element = shapeOf(vm, item).kind },
+            .list_of => |item| .{ .kind = .list, .element = shapeOf(vm, item).kind, .element_check = item },
             .map_of => .{ .kind = .map },
             .class => .{ .kind = .instance },
             .enum_type => |e| .{ .kind = .enum_member, .members = e.members, .enum_type = e },
@@ -298,6 +303,17 @@ fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
 /// field to.
 pub fn enumMember(e: *object.EnumType, index: u32) Value {
     return .{ .raw = @intFromPtr(&e.obj), .extra = index, .tag = .enum_value };
+}
+
+/// A list of `items`, for a field whose items are checked against
+/// `element`: `FieldInfo.element_check`. Each item is the host's to have
+/// made right.
+pub fn newList(vm: *Vm, element: types_mod.Check, items: []const Value) Allocator.Error!Value {
+    const l = try make.list(vm, items.len, element);
+    l.items.appendSliceAssumeCapacity(items);
+    const v: Value = .fromObj(.list, &l.obj);
+    for (items) |item| vm.heap.barrier(&l.obj, item);
+    return v;
 }
 
 /// A colour, from red, green, blue and alpha between nought and one.

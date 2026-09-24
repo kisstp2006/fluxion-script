@@ -494,6 +494,8 @@ test "a host lists a struct's fields with their annotations, sets them, and wake
     try testing.expectError(error.WrongType, vm.setField(guard, "hp", .float(1.5)));
     try testing.expectError(error.NoSuchField, vm.setField(guard, "nope", .int(1)));
     try vm.setField(guard, "mood", api.enumMember(fields[2].enum_type.?, 1));
+    try vm.setField(guard, "path", try vm.newList(fields[3].element_check, &.{ .vec2(1, 2), .vec2(3, 4) }));
+    try testing.expectEqual(@as(usize, 2), vm.getField(guard, "path").?.as(object.List).items.items.len);
     try testing.expectEqual(@as(u32, 1), vm.getField(guard, "mood").?.extra);
 
     // A signal of the host's own, awaited by a task and woken by its emit.
