@@ -215,6 +215,40 @@ written: each a `flux.Member` with the name, the number of parameters, the
 parameters as written (`by: ?Actor`) and the doc comment. That is what an
 editor's signal panel shows.
 
+`flux.fieldsOf(vm, class, &buffer)` lists its fields the same way, each a
+`flux.FieldInfo`: the name, whether it is marked `@export`, what it holds
+(`kind`, `nullable`, a list's `element`, an enum's `members`), its default
+and its doc comment - what an editor draws a row for without running a
+line of the script. Every other annotation on the field is kept with its
+arguments, which must be literals: `flux.annotationOf(field, "range")`
+gives `@range(0, 100)`'s two numbers, and an editor decides what `@range`,
+`@multiline`, `@group("Stats")` or its own `@entity` mean.
+
+```zig
+var found: [64]flux.FieldInfo = undefined;
+for (flux.fieldsOf(vm, class, &found)) |field| {
+    if (!field.exported) continue;
+    const range = flux.annotationOf(field, "range");   // ?[]const Value
+    try vm.setField(instance, field.name, given);        // checked as an assignment is
+}
+```
+
+`vm.setField` and `vm.getField` set and read a field by name from the host,
+checked against its type as a script's assignment would be;
+`flux.enumMember`, `vm.newColor` and `vm.newList` make the values a field
+of those kinds takes.
+
+A host's signals of its own - an engine's `timeout`, heard by a script -
+are `vm.newSignal(name, arity)`: a signal a script connects to, `once`s and
+`await`s as it would its own, and the host emits with
+`vm.emitSignalValue(signal, args)`. A task waiting on it wakes then.
+
+`Vm.Options.host_member` is asked for a member of a handle that is none of
+its fields - `timer.timeout` on a component whose struct has no such field:
+a value to give the script, or null for the usual "has no field" panic.
+And a reflected method's parameter of type `flux.Value` takes what the
+script passed as it is - a function to call later, a signal, an instance.
+
 ## Time, tasks and panics
 
 A script's `await wait(1.0)` waits on the host's clock: call

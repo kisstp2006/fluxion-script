@@ -322,6 +322,7 @@ being built, never for a program that depends on it.
 - [x] `math`, `json`, `os`, and modules of the host's own
 - [x] Embedding from Zig and C; reflection of the host's structs; budgets, interrupts and a memory ceiling
 - [x] Reloading while running, with instances moved to new layouts
+- [x] What an engine asks of it: a struct's fields and annotations for an inspector, set and read by name; signals of the host's own, awaited like a script's; members the host supplies - in the Fluxion engine and its editor
 - [x] The `flux` command, with `--watch` and JSON diagnostics
 - [x] Tested on Windows and Linux (x86-64), and as WebAssembly under WASI: every test script prints the same on each. It builds for ARM Linux and macOS.
 - [x] Broken sources by the thousand, from `zig build fuzz`: none crashes the compiler, the machine or an editor's questions about them
@@ -332,7 +333,6 @@ being built, never for a program that depends on it.
 
 ## 🧭 What comes next
 
-- **Scripts in the Fluxion engine**: a script's structs as components the editor shows and edits, their `@export` fields in the inspector, and the engine reloading them as they are saved - with the Fluxion editor's script panel on `flux.service`.
 - **A debugger** through the VM's frames and the source spans every instruction keeps.
 - **Faster calls**: calls are where Lua is still ahead.
 
