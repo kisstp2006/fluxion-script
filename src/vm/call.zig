@@ -202,6 +202,13 @@ pub fn checkParams(vm: *Vm, p: *const object.Proto, base: [*]Value, given: usize
 pub fn spawn(vm: *Vm, c: *object.Closure, args: []const Value) Error!Value {
     const p = c.proto;
     if (args.len < p.required or args.len > p.params) return badArity(vm, p, args.len);
+    // The arguments may be registers past the calling fiber's live ones -
+    // where a host's call puts them - which a collection clears, and making
+    // the task can collect: kept aside, and rooted, until the task has them.
+    const kept = try vm.gpa.dupe(Value, args);
+    defer vm.gpa.free(kept);
+    for (kept) |v| try vm.pushRoot(v);
+    defer for (kept) |_| vm.popRoot();
     const t = try make.task(vm);
     t.owner = if (vm.task) |parent| parent.owner else vm.task_owner;
     const tv: Value = .fromObj(.task, &t.obj);
@@ -210,8 +217,8 @@ pub fn spawn(vm: *Vm, c: *object.Closure, args: []const Value) Error!Value {
     const at = try t.fiber.free(vm.gpa, 1 + p.regs);
     at[0] = .null;
     const base = at + 1;
-    @memcpy(base[0..args.len], args);
-    for (base[args.len..p.regs]) |*r| r.* = .null;
+    @memcpy(base[0..kept.len], kept);
+    for (base[kept.len..p.regs]) |*r| r.* = .null;
     try checkParams(vm, p, base, args.len);
     try t.fiber.frames.append(vm.gpa, .{
         .closure = c,
