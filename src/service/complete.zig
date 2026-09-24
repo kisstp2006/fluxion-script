@@ -46,6 +46,19 @@ pub const Completions = struct {
 
 /// What could be typed at `offset` in `source`, the file `name`.
 pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []const u8, offset: u32, options: service.Options) service.Error!Completions {
+    // Inside the quotes of a string a call takes: what the host says it may
+    // say.
+    if (options.strings) |strings| if (try cursor.stringArgument(gpa, source, offset)) |at| {
+        const values = try strings.values(strings.context, arena, at);
+        const items = try arena.alloc(Item, values.len);
+        for (values, items) |value, *it| it.* = .{
+            .label = try arena.dupe(u8, value.label),
+            .kind = .enum_member,
+            .detail = try arena.dupe(u8, value.detail),
+            .doc = if (value.doc) |d| try arena.dupe(u8, d) else null,
+        };
+        return .{ .items = items, .start = at.start, .end = at.end };
+    };
     const ctx = try cursor.at(gpa, source, offset);
     var list: std.ArrayList(Item) = .empty;
     var out: Completions = .{ .items = &.{}, .start = ctx.start, .end = ctx.end };

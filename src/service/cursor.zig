@@ -281,6 +281,88 @@ pub fn call(gpa: Allocator, source: []const u8, offset: u32) Allocator.Error!?Ca
 }
 
 // ---------------------------------------------------------------------------
+// Strings a host knows the values of
+
+/// A string being typed as a whole argument of a call - `app.actionDown("ju`
+/// - and the call: what a host offers the names of its own things for.
+pub const StringArgument = struct {
+    /// The name called: `actionDown`.
+    callee: []const u8,
+    /// The name before its `.`, when there is one: `app`.
+    receiver: ?[]const u8,
+    /// Which argument, counted from 0.
+    arg: u32,
+    /// The text inside the quotes, which a completion replaces.
+    start: u32,
+    end: u32,
+};
+
+/// The string argument the cursor is inside the quotes of, if it is in one:
+/// a `"..."` on its own between a call's `(` or `,` and its `,` or `)`, the
+/// closing quote typed or not yet. What it holds points into `source`.
+pub fn stringArgument(gpa: Allocator, source: []const u8, offset: u32) Allocator.Error!?StringArgument {
+    const cursor: u32 = @min(offset, @as(u32, @intCast(source.len)));
+    const tokens = try tokenize(gpa, source, 0, source.len);
+    defer gpa.free(tokens);
+    var k: usize = 0;
+    while (k + 1 < tokens.len and tokens[k].kind != .eof and tokens[k].end < cursor) k += 1;
+    const t = tokens[k];
+    if (t.kind != .string or source[t.start] != '"' or k == 0) return null;
+    const is_closed = closed(source, t);
+    if (cursor <= t.start or (is_closed and cursor >= t.end)) return null;
+    switch (tokens[k - 1].kind) {
+        .l_paren, .comma => {},
+        else => return null,
+    }
+    // After it, the call goes on or ends - or the line does, where the rest
+    // of the call is not typed yet.
+    if (is_closed and k + 1 < tokens.len) switch (tokens[k + 1].kind) {
+        .r_paren, .comma, .eof => {},
+        else => if (std.mem.indexOfScalar(u8, source[t.end..tokens[k + 1].start], '\n') == null) return null,
+    };
+    const site = (try call(gpa, source, t.start)) orelse return null;
+    var c = k;
+    while (c > 0 and tokens[c].end != site.callee_end) c -= 1;
+    if (tokens[c].end != site.callee_end or tokens[c].kind != .identifier) return null;
+    const receiver: ?[]const u8 = if (c >= 2 and tokens[c - 1].kind == .dot and tokens[c - 2].kind == .identifier)
+        source[tokens[c - 2].start..tokens[c - 2].end]
+    else
+        null;
+    return .{
+        .callee = source[tokens[c].start..tokens[c].end],
+        .receiver = receiver,
+        .arg = site.arg,
+        .start = t.start + 1,
+        .end = if (is_closed) t.end - 1 else t.end,
+    };
+}
+
+test "a string typed as a whole argument says whose call it is, and which argument" {
+    const gpa = std.testing.allocator;
+    const Case = struct { source: []const u8, callee: ?[]const u8 = null, receiver: ?[]const u8 = null, arg: u32 = 0 };
+    for ([_]Case{
+        .{ .source = "app.actionDown(\"ju$\")", .callee = "actionDown", .receiver = "app" },
+        .{ .source = "app.actionAxis(\"left\", \"ri$", .callee = "actionAxis", .receiver = "app", .arg = 1 },
+        .{ .source = "look(\"$\")", .callee = "look" },
+        // Part of a longer expression, or no call's at all, it is nobody's.
+        .{ .source = "app.actionDown(\"a\" + \"$\")" },
+        .{ .source = "var name = \"ju$\";" },
+        // Outside the quotes.
+        .{ .source = "app.actionDown(\"jump\"$)" },
+    }) |case| {
+        const where = std.mem.indexOfScalar(u8, case.source, '$').?;
+        const source = try std.mem.concat(gpa, u8, &.{ case.source[0..where], case.source[where + 1 ..] });
+        defer gpa.free(source);
+        const found = try stringArgument(gpa, source, @intCast(where));
+        if (case.callee) |callee| {
+            try std.testing.expectEqualStrings(callee, found.?.callee);
+            if (case.receiver) |receiver| try std.testing.expectEqualStrings(receiver, found.?.receiver.?) else try std.testing.expect(found.?.receiver == null);
+            try std.testing.expectEqual(case.arg, found.?.arg);
+        } else try std.testing.expect(found == null);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The source for the compiler
 
 /// The source with the placeholder where the word at the cursor is, and

@@ -39,6 +39,10 @@ pub const Options = struct {
     /// natives, modules, `os`. Without it, what they use of those is
     /// reported as missing.
     setup: ?Setup = null,
+    /// What may go inside the quotes of a string a call of the host's takes
+    /// - the names of its own things - offered as completions there. Without
+    /// it, a string offers nothing.
+    strings: ?Strings = null,
     /// Where imports come from. An editor gives the text of the files it
     /// has open, and the rest from disk.
     loader: ?Vm.Loader = null,
@@ -48,6 +52,23 @@ pub const Options = struct {
 pub const Setup = struct {
     context: ?*anyopaque = null,
     run: *const fn (context: ?*anyopaque, vm: *Vm) anyerror!void,
+};
+
+/// A string a call takes, being typed. See `Options.strings`.
+pub const StringArgument = @import("service/cursor.zig").StringArgument;
+
+pub const Strings = struct {
+    context: ?*anyopaque = null,
+    /// What the string at `at` may say, made in `arena`; none for a call the
+    /// host has nothing to offer for.
+    values: *const fn (context: ?*anyopaque, arena: Allocator, at: StringArgument) Allocator.Error![]const StringValue,
+};
+
+/// One thing a string may say: the text, and what it is.
+pub const StringValue = struct {
+    label: []const u8,
+    detail: []const u8 = "",
+    doc: ?[]const u8 = null,
 };
 
 /// What a name is, as an editor shows it: a completion's icon, a symbol's.

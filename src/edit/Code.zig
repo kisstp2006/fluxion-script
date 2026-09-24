@@ -371,8 +371,8 @@ fn edited(ed: *Code) void {
     ed.hover.shown = null;
 }
 
-/// A character typed. Typing a name opens completions, a `.` or an `@`
-/// asks what comes after it, and `(` and `,` what the call takes.
+/// A character typed. Typing a name opens completions, a `.`, an `@` or a
+/// `"` asks what comes after it, and `(` and `,` what the call takes.
 pub fn typeChar(ed: *Code, codepoint: u21) Allocator.Error!void {
     var utf8: [4]u8 = undefined;
     const n = std.unicode.utf8Encode(codepoint, &utf8) catch return;
@@ -385,7 +385,7 @@ pub fn typeChar(ed: *Code, codepoint: u21) Allocator.Error!void {
         } else if (!std.ascii.isDigit(c) and ed.buffer.cursor - ed.buffer.wordStart(ed.buffer.cursor) == 1) {
             ed.complete();
         }
-    } else if (c == '.' or c == '@') {
+    } else if (c == '.' or c == '@' or c == '"') {
         ed.complete();
     } else {
         ed.closeCompletion();
@@ -649,4 +649,25 @@ test "places in a line are measured, not counted, in any font" {
     ed.follow();
     try std.testing.expect(ed.left > 0);
     try std.testing.expect(ed.xOf(19) - ed.left <= 100);
+}
+
+/// The actions a test's host knows, for `app.actionDown` and nothing else.
+fn actionNames(_: ?*anyopaque, arena: Allocator, at: service.StringArgument) Allocator.Error![]const service.StringValue {
+    _ = arena;
+    const receiver = at.receiver orelse return &.{};
+    if (!std.mem.eql(u8, receiver, "app") or !std.mem.eql(u8, at.callee, "actionDown")) return &.{};
+    return &.{ .{ .label = "jump" }, .{ .label = "jump_high" }, .{ .label = "crouch" } };
+}
+
+test "a quote opened for a call the host knows the strings of offers them, and a pick goes inside it" {
+    const gpa = std.testing.allocator;
+    var ed: Code = try .init(gpa, "t.flux", "fn f(app: any) {\n    if (app.actionDown(\n}\n", .{ .strings = .{ .values = actionNames } }, .{ .font_size = 16, .line_height = 18 });
+    defer ed.deinit();
+    ed.buffer.moveTo(@intCast(std.mem.indexOf(u8, ed.buffer.text.items, "(\n}").? + 1), false);
+    try ed.typeChar('"');
+    try std.testing.expect(ed.completion.open);
+    for ("cr") |c| try ed.typeChar(c);
+    try std.testing.expectEqualStrings("crouch", ed.selectedItem().?.label);
+    try ed.accept(ed.completion.selected);
+    try std.testing.expect(std.mem.indexOf(u8, ed.buffer.text.items, "app.actionDown(\"crouch\"") != null);
 }
