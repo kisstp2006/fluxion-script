@@ -545,3 +545,29 @@ test "a member the host gives a handle besides its fields: a signal a script awa
     try testing.expectEqualStrings("host_test.Clock has no field `nothing`", vm.panic.?.message);
     vm.clearPanic();
 }
+
+const Later = struct {
+    kept: Value = .null,
+
+    pub const reflect_methods = .{.keep};
+
+    pub fn keep(self: *Later, f: Value) void {
+        self.kept = f;
+    }
+};
+
+test "a method of the host's is handed a script's value as it is" {
+    const vm = try Vm.create(testing.allocator, .{});
+    defer vm.destroy();
+    var later: Later = .{};
+    try vm.defineGlobal("later", try vm.handle(&later), null);
+    const m = try vm.load("later.flux",
+        \\var called = 0;
+        \\fn bump() { called += 1; }
+        \\fn give() { later.keep(bump); }
+    );
+    _ = try vm.callName(m, "give", &.{});
+    try testing.expectEqual(Tag.function, later.kept.tag);
+    _ = try vm.call(later.kept, &.{});
+    try testing.expectEqual(@as(i64, 1), vm.get(m, "called").?.asInt());
+}

@@ -368,9 +368,11 @@ pub fn method(vm: *Vm, h: Value, name: []const u8) Error!?Value {
 const max_args = 16;
 
 /// Calls a reflected method with the script's arguments. A parameter of type
-/// `*flux.Vm` is not the script's to give: it is the VM calling. A result of
-/// type `flux.Value` goes back as it is, so a method can hand a script what
-/// only it can make - a handle on a value it found by name.
+/// `*flux.Vm` is not the script's to give: it is the VM calling. A
+/// parameter of type `flux.Value` is given the script's value as it is - a
+/// function to call later, a list - and a result of that type goes back as
+/// it is, so a method can hand a script what only it can make - a handle on
+/// a value it found by name.
 fn callMethod(vm: *Vm, args: []Value) Error!Value {
     const n = vm.current_native.?;
     const m: *const reflect.Method = @ptrCast(@alignCast(n.data.?));
@@ -395,6 +397,11 @@ fn callMethod(vm: *Vm, args: []Value) Error!Value {
         }
         const a = args[next];
         next += 1;
+        if (p.type.is(Value)) {
+            values[i] = .init(p.type, &storage[i]);
+            @as(*Value, @ptrCast(@alignCast(&storage[i]))).* = a;
+            continue;
+        }
         if (a.tag == .handle and hostType(vm, p.type) == null and (p.type.kind == .pointer or p.type.kind == .@"struct")) {
             values[i] = target(try resolve(vm, a.as(object.Handle)));
             continue;
