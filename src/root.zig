@@ -44,6 +44,7 @@ pub const FieldInfo = @import("api.zig").FieldInfo;
 pub const FieldKind = @import("api.zig").FieldKind;
 pub const fieldsOf = @import("api.zig").fieldsOf;
 pub const annotationOf = @import("api.zig").annotationOf;
+pub const enumMember = @import("api.zig").enumMember;
 
 /// What an editor asks about code being written: highlighting, hovers,
 /// completions, where names are declared. `flux lsp` serves it to editors.

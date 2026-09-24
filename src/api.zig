@@ -217,6 +217,8 @@ pub const FieldInfo = struct {
     element: FieldKind = .any,
     /// An enum's member names, for `kind == .enum_member`.
     members: []const *object.String = &.{},
+    /// The enum, for `kind == .enum_member`: see `enumMember`.
+    enum_type: ?*object.EnumType = null,
     /// What it starts as when nothing sets it: a list or a map is made
     /// anew for each instance, and this is only its zero then.
     default: Value,
@@ -244,6 +246,7 @@ pub fn fieldsOf(vm: *const Vm, class: Value, into: []FieldInfo) []FieldInfo {
             .nullable = shape.nullable,
             .element = shape.element,
             .members = shape.members,
+            .enum_type = shape.enum_type,
             .default = f.default,
             .doc = f.doc,
             .annotations = f.annotations,
@@ -253,7 +256,13 @@ pub fn fieldsOf(vm: *const Vm, class: Value, into: []FieldInfo) []FieldInfo {
     return into[0..n];
 }
 
-const Shape = struct { kind: FieldKind, nullable: bool = false, element: FieldKind = .any, members: []const *object.String = &.{} };
+const Shape = struct {
+    kind: FieldKind,
+    nullable: bool = false,
+    element: FieldKind = .any,
+    members: []const *object.String = &.{},
+    enum_type: ?*object.EnumType = null,
+};
 
 fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
     return switch (check) {
@@ -277,12 +286,23 @@ fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
             .list_of => |item| .{ .kind = .list, .element = shapeOf(vm, item).kind },
             .map_of => .{ .kind = .map },
             .class => .{ .kind = .instance },
-            .enum_type => |e| .{ .kind = .enum_member, .members = e.members },
+            .enum_type => |e| .{ .kind = .enum_member, .members = e.members, .enum_type = e },
             .function => .{ .kind = .function },
             .error_union => .{ .kind = .other },
         },
         else => .{ .kind = .other },
     };
+}
+
+/// The member at `index` of an enum, as a value: what a host sets an enum's
+/// field to.
+pub fn enumMember(e: *object.EnumType, index: u32) Value {
+    return .{ .raw = @intFromPtr(&e.obj), .extra = index, .tag = .enum_value };
+}
+
+/// A colour, from red, green, blue and alpha between nought and one.
+pub fn newColor(vm: *Vm, rgba: [4]f32) Allocator.Error!Value {
+    return make.color(vm, rgba);
 }
 
 /// The arguments of the annotation `name` on a field - `@range(0, 100)` is
