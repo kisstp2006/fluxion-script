@@ -38,6 +38,12 @@ pub const HostType = Vm.HostType;
 pub const classOf = @import("api.zig").classOf;
 pub const methodsOf = @import("api.zig").methodsOf;
 pub const signalsOf = @import("api.zig").signalsOf;
+/// A struct's fields, `@export`s among them, as an editor shows them and a
+/// host sets them: `fieldsOf`, `annotationOf`, and `vm.setField`.
+pub const FieldInfo = @import("api.zig").FieldInfo;
+pub const FieldKind = @import("api.zig").FieldKind;
+pub const fieldsOf = @import("api.zig").fieldsOf;
+pub const annotationOf = @import("api.zig").annotationOf;
 
 /// What an editor asks about code being written: highlighting, hovers,
 /// completions, where names are declared. `flux lsp` serves it to editors.

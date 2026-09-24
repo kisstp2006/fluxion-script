@@ -248,6 +248,10 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
     }
 
     const class = info.class;
+    // The annotations' maps and lists belong to nothing the collector sees
+    // until the fields are the class's.
+    vm.heap.paused += 1;
+    defer vm.heap.paused -= 1;
     const fields = try vm.gpa.alloc(object.Field, info.fields.items.len);
     for (info.fields.items, fields, 0..) |f, *out, i| {
         out.* = .{
@@ -271,7 +275,11 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
             if (ast_field) |af| {
                 if (af.doc) |d| out.doc = try vm.gpa.dupe(u8, d);
                 for (af.annotations) |a| {
-                    if (std.mem.eql(u8, a.name.text, "export")) out.exported = true;
+                    if (std.mem.eql(u8, a.name.text, "export")) {
+                        out.exported = true;
+                    } else {
+                        try annotate(c, out, a);
+                    }
                 }
                 if (af.value) |v| {
                     const what = try std.fmt.allocPrint(c.arena, "field `{s}`", .{f.name});
@@ -282,6 +290,7 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
         } else if (info.parent) |p| {
             out.default = p.class.fields[i].default;
             out.exported = p.class.fields[i].exported;
+            out.annotations = p.class.fields[i].annotations;
             out.computed = p.class.fields[i].computed;
             if (p.class.fields[i].doc) |d| out.doc = try vm.gpa.dupe(u8, d);
         }
@@ -309,6 +318,28 @@ fn literalDefault(c: *Compiler, what: []const u8, t: Type, lit: ?Literal, v: *co
     _ = try (try c.err(v.span, "{s} must be {s}, not {s}", .{ what, c.typeName(t), c.typeName(l.type) }))
         .text("this is {s}", .{c.typeName(l.type)});
     return null;
+}
+
+/// An annotation of a field's besides `@export` - `@range(0, 100)`,
+/// `@multiline` - kept with the field for the host, by its name, with its
+/// arguments: literals, each.
+fn annotate(c: *Compiler, field: *object.Field, a: ast.Annotation) Error!void {
+    const vm = c.vm;
+    const args = try make.list(vm, a.args.len, .any);
+    for (a.args) |arg| {
+        const lit = literal(c, arg) orelse {
+            _ = try c.err(arg.span, "an annotation's arguments are literals: a number, a string or a bool", .{});
+            continue;
+        };
+        args.items.appendAssumeCapacity(lit.value);
+    }
+    const table = field.annotations orelse try make.map(vm, .string, .any);
+    field.annotations = table;
+    const key: Value = .fromObj(.string, &(try vm.intern(a.name.text)).obj);
+    table.table.put(vm.gpa, key, .fromObj(.list, &args.obj)) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
 }
 
 fn findField(node: *const ast.Struct, name: []const u8) ?*const ast.VarDecl {

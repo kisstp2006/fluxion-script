@@ -246,6 +246,10 @@ pub const types = [_]Entry{
 pub const annotations = [_]Entry{
     .{ .name = "import", .sig = "@import(path: string)", .doc = "A module: `const math = @import(\"math\");`, one built in, one the host made, or a file next to this one." },
     .{ .name = "export", .sig = "@export", .doc = "Shows the field in an editor's inspector, and saves it with the scene." },
+    .{ .name = "range", .sig = "@range(min, max, step)", .doc = "The numbers an exported field may be, for the host's widget: `@range(0, 100)`, the step left out for any." },
+    .{ .name = "multiline", .sig = "@multiline", .doc = "An exported string written over several lines." },
+    .{ .name = "group", .sig = "@group(name: string)", .doc = "Where an exported field is listed, under a heading of its own." },
+    .{ .name = "file", .sig = "@file(ending: string, ...)", .doc = "An exported string that names a file of the project's, by its endings: `@file(\"png\", \"jpg\")`." },
 };
 
 /// A signature with the real types put in for `T`, `K` and `V`: each one

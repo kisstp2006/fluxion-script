@@ -439,3 +439,109 @@ test "an editor's completions and hovers know what the host gives" {
     const on_app = (try a.hover(arena.allocator(), @intCast(std.mem.indexOf(u8, mover, "app;").? + 1))).?;
     try testing.expectEqualStrings("The running game.", on_app.doc.?);
 }
+
+const guard_script =
+    \\enum Mood { calm, angry }
+    \\struct Guard {
+    \\    /// How much it takes.
+    \\    @export @range(0, 100) var hp: int = 10;
+    \\    @export @multiline var motto: string = "halt";
+    \\    @export var mood: Mood = .calm;
+    \\    @export var path: [vec2];
+    \\    @export var nick: ?string = null;
+    \\    var heard = 0;
+    \\
+    \\    fn watch(self, bell: any) {
+    \\        const rung = await bell;
+    \\        self.heard = rung;
+    \\    }
+    \\}
+;
+
+test "a host lists a struct's fields with their annotations, sets them, and wakes a task with a signal of its own" {
+    const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
+    defer vm.destroy();
+    const m = try vm.load("guard.flux", guard_script);
+    const class = vm.get(m, "Guard").?;
+    var buffer: [8]api.FieldInfo = undefined;
+    const fields = api.fieldsOf(vm, class, &buffer);
+    try testing.expectEqual(@as(usize, 6), fields.len);
+
+    const hp = fields[0];
+    try testing.expectEqualStrings("hp", hp.name);
+    try testing.expect(hp.exported);
+    try testing.expectEqual(api.FieldKind.int, hp.kind);
+    try testing.expectEqualStrings("How much it takes.", hp.doc.?);
+    try testing.expectEqual(@as(i64, 10), hp.default.asInt());
+    const range = api.annotationOf(hp, "range").?;
+    try testing.expectEqual(@as(usize, 2), range.len);
+    try testing.expectEqual(@as(i64, 100), range[1].asInt());
+    try testing.expectEqual(@as(usize, 0), api.annotationOf(fields[1], "multiline").?.len);
+    try testing.expect(api.annotationOf(fields[1], "range") == null);
+    try testing.expectEqual(api.FieldKind.enum_member, fields[2].kind);
+    try testing.expectEqualStrings("angry", fields[2].members[1].bytes());
+    try testing.expectEqual(api.FieldKind.list, fields[3].kind);
+    try testing.expectEqual(api.FieldKind.vec2, fields[3].element);
+    try testing.expect(fields[4].nullable);
+    try testing.expectEqual(api.FieldKind.string, fields[4].kind);
+    try testing.expect(!fields[5].exported);
+
+    const guard = try vm.instantiate(class, &.{});
+    try vm.hold(guard);
+    defer vm.release(guard);
+    try vm.setField(guard, "hp", .int(50));
+    try testing.expectEqual(@as(i64, 50), vm.getField(guard, "hp").?.asInt());
+    try testing.expectError(error.WrongType, vm.setField(guard, "hp", .float(1.5)));
+    try testing.expectError(error.NoSuchField, vm.setField(guard, "nope", .int(1)));
+
+    // A signal of the host's own, awaited by a task and woken by its emit.
+    const bell = try vm.newSignal("rung", 1);
+    try vm.hold(bell);
+    defer vm.release(bell);
+    _ = try vm.callMethod(guard, "watch", &.{bell});
+    try testing.expectEqual(@as(i64, 0), vm.getField(guard, "heard").?.asInt());
+    try vm.emitSignalValue(bell, &.{.int(7)});
+    try testing.expectEqual(@as(i64, 7), vm.getField(guard, "heard").?.asInt());
+}
+
+test "an annotation's arguments are literals" {
+    const vm = try Vm.create(testing.allocator, .{});
+    defer vm.destroy();
+    try testing.expectError(error.CompileFailed, vm.load("bad.flux", "fn top() int { return 3; }\nstruct S { @range(0, top()) var x: int = 1; }"));
+}
+
+const Clock = struct {
+    ticks: i64 = 0,
+
+    var timeout: Value = .null;
+
+    fn member(_: *Vm, _: Value, name: []const u8) Vm.Error!?Value {
+        if (std.mem.eql(u8, name, "timeout")) return timeout;
+        return null;
+    }
+};
+
+test "a member the host gives a handle besides its fields: a signal a script awaits" {
+    const vm = try Vm.create(testing.allocator, .{ .host_member = Clock.member });
+    defer vm.destroy();
+    var clock: Clock = .{};
+    try vm.defineGlobal("clock", try vm.handle(&clock), null);
+    Clock.timeout = try vm.newSignal("timeout", 0);
+    try vm.hold(Clock.timeout);
+    defer vm.release(Clock.timeout);
+    const m = try vm.load("wait.flux",
+        \\var rang = false;
+        \\fn listen() {
+        \\    await clock.timeout;
+        \\    rang = true;
+        \\}
+        \\fn missing() any { return clock.nothing; }
+    );
+    _ = try vm.callName(m, "listen", &.{});
+    try testing.expect(!vm.get(m, "rang").?.asBool());
+    try vm.emitSignalValue(Clock.timeout, &.{});
+    try testing.expect(vm.get(m, "rang").?.asBool());
+    try testing.expectError(error.Panic, vm.callName(m, "missing", &.{}));
+    try testing.expectEqualStrings("host_test.Clock has no field `nothing`", vm.panic.?.message);
+    vm.clearPanic();
+}

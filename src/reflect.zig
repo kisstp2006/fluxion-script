@@ -327,7 +327,10 @@ pub fn get(vm: *Vm, h: Value, name: []const u8) Error!Value {
     if (std.mem.eql(u8, name, "len") and (rv.type.kind == .slice or rv.type.kind == .array)) {
         return .int(@intCast(rv.len() catch 0));
     }
-    const i = rv.type.fieldIndex(name) orelse return noField(vm, rv.type, name);
+    const i = rv.type.fieldIndex(name) orelse {
+        if (vm.options.host_member) |hook| if (try hook(vm, h, name)) |v| return v;
+        return noField(vm, rv.type, name);
+    };
     const f = rv.fieldAt(i) catch return noField(vm, rv.type, name);
     return toFluxAt(vm, f, h, .{ .field = @intCast(i) });
 }

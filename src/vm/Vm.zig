@@ -55,6 +55,11 @@ pub const Options = struct {
     /// Types of the host's that a script sees as something else: an engine's
     /// entity as the handle its scripts know entities by. See `HostType`.
     host_types: []const HostType = &.{},
+    /// Asked for a member of one of the host's values - a handle - that is
+    /// none of its fields: a signal an engine's component declares, as
+    /// `timer.timeout`. Null when the host has nothing by that name, and the
+    /// script is told so.
+    host_member: ?*const fn (vm: *Vm, handle: Value, name: []const u8) Error!?Value = null,
 };
 
 /// One of the host's types as a script sees it. Asked first whenever a
@@ -215,6 +220,10 @@ pub const callMethod = api.callMethod;
 pub const connectSignal = api.connectSignal;
 pub const disconnectSignal = api.disconnectSignal;
 pub const emitSignal = api.emitSignal;
+pub const newSignal = api.newSignal;
+pub const emitSignalValue = api.emitSignalValue;
+pub const setField = api.setField;
+pub const getField = api.getField;
 pub const native = api.native;
 
 pub fn compileSession(vm: *Vm) Allocator.Error!*Session {

@@ -18,6 +18,7 @@ const bind = @import("bind.zig");
 const native_lib = @import("lib/native.zig");
 const signal_lib = @import("lib/signal.zig");
 const reload_mod = @import("reload.zig");
+const types_mod = @import("vm/types.zig");
 
 pub const CompileError = error{ CompileFailed, OutOfMemory };
 pub const LoadError = error{ CompileFailed, Panic, OutOfMemory };
@@ -199,6 +200,153 @@ pub fn instantiate(vm: *Vm, class: Value, host: []const HostValue) Vm.Error!Valu
     if (c.has_signals) try signal_lib.fill(vm, inst);
     if (c.defaults != null or c.parent != null) try call_mod.initDefaults(vm, v);
     return v;
+}
+
+/// A field of a struct's, as a host sees it: what an editor shows of an
+/// `@export`, and what it sets before the instance is used.
+pub const FieldInfo = struct {
+    name: []const u8,
+    /// Marked `@export`: shown by an editor, and saved with a scene.
+    exported: bool,
+    /// What it holds.
+    kind: FieldKind,
+    /// A `?T`: null too.
+    nullable: bool,
+    /// For a list, what its items are; `any` for a list of anything, and for
+    /// anything but a list.
+    element: FieldKind = .any,
+    /// An enum's member names, for `kind == .enum_member`.
+    members: []const *object.String = &.{},
+    /// What it starts as when nothing sets it: a list or a map is made
+    /// anew for each instance, and this is only its zero then.
+    default: Value,
+    doc: ?[]const u8,
+    /// Its annotations but `@export`, by name, each with its arguments.
+    /// See `annotationOf`.
+    annotations: ?*object.Map,
+};
+
+pub const FieldKind = enum { any, int, float, bool, string, vec2, vec3, color, list, map, enum_member, instance, function, other };
+
+/// The fields a struct's instances have, inherited ones first, as written:
+/// neither its signals nor the host's members. As many as fit in `into`.
+pub fn fieldsOf(vm: *const Vm, class: Value, into: []FieldInfo) []FieldInfo {
+    if (class.tag != .class) return into[0..0];
+    var n: usize = 0;
+    for (class.as(object.Class).fields) |f| {
+        if (f.is_signal or f.host) continue;
+        if (n == into.len) break;
+        const shape = shapeOf(vm, f.check);
+        into[n] = .{
+            .name = f.name.bytes(),
+            .exported = f.exported,
+            .kind = shape.kind,
+            .nullable = shape.nullable,
+            .element = shape.element,
+            .members = shape.members,
+            .default = f.default,
+            .doc = f.doc,
+            .annotations = f.annotations,
+        };
+        n += 1;
+    }
+    return into[0..n];
+}
+
+const Shape = struct { kind: FieldKind, nullable: bool = false, element: FieldKind = .any, members: []const *object.String = &.{} };
+
+fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
+    return switch (check) {
+        .any => .{ .kind = .any },
+        .int => .{ .kind = .int },
+        .float => .{ .kind = .float },
+        .bool => .{ .kind = .bool },
+        .string => .{ .kind = .string },
+        .vec2 => .{ .kind = .vec2 },
+        .vec3 => .{ .kind = .vec3 },
+        .color => .{ .kind = .color },
+        .list => .{ .kind = .list },
+        .map => .{ .kind = .map },
+        .function => .{ .kind = .function },
+        _ => switch (vm.checks.get(check) orelse return .{ .kind = .other }) {
+            .optional => |inner| blk: {
+                var shape = shapeOf(vm, inner);
+                shape.nullable = true;
+                break :blk shape;
+            },
+            .list_of => |item| .{ .kind = .list, .element = shapeOf(vm, item).kind },
+            .map_of => .{ .kind = .map },
+            .class => .{ .kind = .instance },
+            .enum_type => |e| .{ .kind = .enum_member, .members = e.members },
+            .function => .{ .kind = .function },
+            .error_union => .{ .kind = .other },
+        },
+        else => .{ .kind = .other },
+    };
+}
+
+/// The arguments of the annotation `name` on a field - `@range(0, 100)` is
+/// `range` with 0 and 100 - or null when it has none.
+pub fn annotationOf(field: FieldInfo, name: []const u8) ?[]const Value {
+    const table = field.annotations orelse return null;
+    var it = table.table.iterator();
+    while (it.next()) |entry| {
+        if (entry.key.tag != .string or !std.mem.eql(u8, entry.key.as(object.String).bytes(), name)) continue;
+        return entry.value.as(object.List).items.items;
+    }
+    return null;
+}
+
+pub const SetFieldError = error{
+    /// The instance's struct has no field by that name.
+    NoSuchField,
+    /// The value is not what the field holds.
+    WrongType,
+};
+
+/// Set a field of an instance from the host: what an engine does with an
+/// `@export`'s saved value before the instance is used. An int where a float
+/// is wanted is widened; anything else not what the field holds is refused.
+pub fn setField(vm: *Vm, instance: Value, name: []const u8, given: Value) SetFieldError!void {
+    if (instance.tag != .instance) return error.NoSuchField;
+    const inst = instance.as(object.Instance);
+    const slot = slotOf(vm, inst.class, name) orelse return error.NoSuchField;
+    const field = inst.class.fields[slot];
+    if (field.is_signal or field.host or field.is_const) return error.NoSuchField;
+    const kept = vm.checks.coerce(field.check, given) orelse return error.WrongType;
+    inst.fields()[slot] = kept;
+    vm.heap.barrier(&inst.obj, kept);
+}
+
+/// A field of an instance, as it is now; null for one it has not got.
+pub fn getField(vm: *Vm, instance: Value, name: []const u8) ?Value {
+    if (instance.tag != .instance) return null;
+    const inst = instance.as(object.Instance);
+    const slot = slotOf(vm, inst.class, name) orelse return null;
+    return inst.fields()[slot];
+}
+
+fn slotOf(vm: *Vm, class: *object.Class, name: []const u8) ?u32 {
+    const key = vm.interned.find(name, @import("vm/strings.zig").hashBytes(name)) orelse return null;
+    return class.slots.get(key);
+}
+
+/// A signal of no instance's: one the host emits with `emitSignalValue` -
+/// an engine's own, as its scripts see it - which scripts connect to and
+/// `await` as they do any other. Hold it while the host keeps it.
+pub fn newSignal(vm: *Vm, name: []const u8, params: u8) Vm.Error!Value {
+    const interned = try vm.intern(name);
+    try vm.pushRoot(.fromObj(.string, &interned.obj));
+    defer vm.popRoot();
+    const s = try make.signal(vm, interned, params);
+    return .fromObj(.signal, &s.obj);
+}
+
+/// Emit a signal the host has: what is connected is called with `args`,
+/// and what waits wakes, as an `emit` in a script does.
+pub fn emitSignalValue(vm: *Vm, signal: Value, args: []const Value) Vm.Error!void {
+    if (signal.tag != .signal) return vm.fail("only a signal is emitted, and this is {s}", .{types_mod.typeName(signal)});
+    return signal_lib.emitOn(vm, signal.as(object.Signal), args);
 }
 
 /// The struct `instance` was made of, as `get` gives a struct.
