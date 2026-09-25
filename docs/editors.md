@@ -8,8 +8,9 @@ ways in:
   output, for VS Code, Neovim, Helix, Sublime Text, Emacs, Zed and the rest.
 - **`flux.service`** answers the same questions as function calls, for an
   editor built into a program - an engine's script editor.
-  [`flux.edit`](#the-editor-in-a-program) is such an editor, ready made, and
-  [the IDE](#the-ide) in `examples/ide` is a window around it.
+  [`fluxion_script_code`](#the-editor-in-a-program) puts it in
+  fluxion-code's editor, ready made, and [the IDE](#the-ide) in
+  `examples/ide` is a window around that.
 
 What either gives:
 
@@ -179,61 +180,75 @@ makes what the host gives its scripts - its natives and modules - so that
 
 ## The editor, in a program
 
-`flux.edit.Code` is the IDE's editor without its window: the text and its
-undo, the caret, the keys, and the service asked as the text changes. It
-draws nothing. `fluxion_script_ui` draws it with fluxion-ui - rows, line
-numbers, selection, underlines, the completion list, signatures and hovers -
-measuring the text through the interface, so a proportional font does as
-well as a monospaced one.
+[fluxion-code](https://github.com/kisstp2006/fluxion-code) is a code editor
+on fluxion-ui for any language: the text and its undo, the caret, the keys,
+the view - rows, line numbers, selection, underlines, the completion list,
+signatures, hovers, the find bar - measuring the text through the interface,
+so a proportional font does as well as a monospaced one. A language tells it
+what it knows as a `code.Language`. `fluxion_script_code`'s `Flux` is Flux's:
+its words and rules, and the service asked as the text changes, with the
+`options` a host gives its scripts.
 
 ```zig
-// build.zig: the view is made only for a dependant that asks for it.
-const script = b.dependency("fluxion_script", .{ .target = target, .optimize = optimize, .ui = true });
+// build.zig: made only for a dependant that asks for it.
+const script = b.dependency("fluxion_script", .{ .target = target, .optimize = optimize, .code = true });
 exe.root_module.addImport("fluxion_script", script.module("fluxion_script"));
-exe.root_module.addImport("fluxion_script_ui", script.module("fluxion_script_ui"));
+exe.root_module.addImport("fluxion_script_code", script.module("fluxion_script_code"));
+exe.root_module.addImport("fluxion_code", script.builder.dependency("fluxion_code", .{}).module("fluxion_code"));
 ```
 
 ```zig
-const code_ui = @import("fluxion_script_ui");
+const code = @import("fluxion_code");
+const Flux = @import("fluxion_script_code").Flux;
 
-var ruler: code_ui.Ruler = .{ .ui = &ui, .style = .{ .font_size = 15 } };
-var code: flux.edit.Code = try .init(gpa, "player.flux", text, options, .{
+// Where it will not move: the language points at it.
+var flux_lang: Flux = .{ .options = options };
+var ruler: code.Ruler = .{ .ui = &ui, .style = .{ .font_size = 15 } };
+var doc: code.Document = try .init(gpa, "player.flux", text, flux_lang.language(), .{
     .font_size = 15,
     .line_height = 20,
     .measure = ruler.measure(),
 });
-var colours = code_ui.Theme.dark;              // or change some first
+var colours = code.Theme.dark;                 // or change some first
 colours.popup = my_menu_colour;
 // `font` is the code's face in the interface's font table - a monospaced
 // one - and `prose_font` the docs'; give the ruler's style the same `font`.
-const view: code_ui.View = .{ .ids = .{ .code = "script-code" }, .theme = &colours, .font = mono };
+const view: code.View = .{ .ids = .{ .code = "script-code" }, .theme = &colours, .font = mono };
 
 // Each frame: time, keys, the pointer, then the view, then where it went.
-code.now = seconds;
-_ = try code.key(.enter, .{});                   // and code.typeChar(c)
-view.pointer(&code, &ui, .{ .x = x, .y = y, .down = down, .pressed = pressed, .mods = .{} });
-view.draw(&code, &ui, focused);                // inside your layout
+doc.now = seconds;
+_ = try doc.key(.enter, .{});                    // and doc.typeChar(c)
+view.pointer(&doc, &ui, .{ .x = x, .y = y, .down = down, .pressed = pressed, .mods = .{} });
+doc.refresh();
+view.draw(&doc, &ui, focused);                 // inside your layout
 _ = try ui.end();
-view.measure(&code, &ui, 1);
+view.measure(&doc, &ui, 1);
 ```
 
 The ids name the view's elements, so two views - or a view among other
 panels - do not clash.
 
 A program that draws with a fluxion-ui of its own - an engine's, pinned
-where the engine pins it - builds the view over that one instead, so that
-its `Ui` and the view's are one type whatever either package pins:
+where the engine pins it - builds fluxion-code and Flux in it over that one
+instead, so that its `Ui` and the view's are one type whatever either
+package pins:
 
 ```zig
 const script = b.dependency("fluxion_script", .{ .target = target, .optimize = optimize });
-const code_ui = b.createModule(.{
-    .root_source_file = script.path("src/ui/root.zig"),
-    .target = target,
-    .optimize = optimize,
+const code_dep = b.dependency("fluxion_code", .{ .target = target, .optimize = optimize });
+const code = b.createModule(.{
+    .root_source_file = code_dep.path("src/root.zig"),
     .imports = &.{
-        .{ .name = "fluxion_script", .module = script.module("fluxion_script") },
         // The engine's own: a module's imports are in its import table.
         .{ .name = "fluxion_ui", .module = engine.module("fluxion_engine").import_table.get("fluxion_ui").? },
+        .{ .name = "fluxion_text", .module = script.module("fluxion_script").import_table.get("fluxion_text").? },
+    },
+});
+const flux_code = b.createModule(.{
+    .root_source_file = script.path("src/code.zig"),
+    .imports = &.{
+        .{ .name = "fluxion_script", .module = script.module("fluxion_script") },
+        .{ .name = "fluxion_code", .module = code },
     },
 });
 ```

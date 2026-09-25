@@ -9,12 +9,13 @@ const std = @import("std");
 const ui_lib = @import("fluxion_ui");
 const flux = @import("fluxion_script");
 const service = flux.service;
-const Code = flux.edit.Code;
+const code = @import("fluxion_code");
+const Code = code.Document;
 const Runner = @import("Runner.zig");
 const theme = @import("theme.zig");
 
 /// The code, drawn by the language's own view in its own colours.
-pub const code_view: @import("fluxion_script_ui").View = .{ .theme = theme.code };
+pub const code_view: code.View = .{ .theme = theme.code };
 
 const Ui = ui_lib.Ui;
 const Color = ui_lib.Color;
@@ -181,7 +182,7 @@ fn members(ui: *Ui, ed: *Code) ?u32 {
     return clicked;
 }
 
-fn member(ui: *Ui, ed: *Code, s: service.Symbol, depth: u16, index: *usize) ?u32 {
+fn member(ui: *Ui, ed: *Code, s: code.Symbol, depth: u16, index: *usize) ?u32 {
     var name: [32]u8 = undefined;
     const id = std.fmt.bufPrint(&name, "member-{d}", .{index.*}) catch "member";
     index.* += 1;
@@ -200,7 +201,7 @@ fn member(ui: *Ui, ed: *Code, s: service.Symbol, depth: u16, index: *usize) ?u32
     const letter, const color = theme.code.kind(s.kind);
     ui.text(letter, style(ed, color));
     ui.text(s.name, style(ed, theme.ink));
-    return if (clicked) s.span.start else null;
+    return if (clicked) s.start else null;
 }
 
 fn problems(ui: *Ui, ed: *Code) ?u32 {

@@ -7,7 +7,7 @@ const ui = @import("fluxion_ui");
 
 const Color = ui.Color;
 
-pub const code = &@import("fluxion_script_ui").Theme.dark;
+pub const code = &@import("fluxion_code").Theme.dark;
 
 pub const window: Color = .hex(0x15181D);
 pub const panel: Color = .hex(0x1B1F25);

@@ -51,10 +51,6 @@ pub const enumMember = @import("api.zig").enumMember;
 pub const service = @import("service.zig");
 pub const lsp = @import("lsp.zig");
 
-/// A code editor's model over the service, for an interface to draw;
-/// `fluxion_script_ui` draws it with fluxion-ui.
-pub const edit = @import("edit.zig");
-
 /// The C API of `include/fluxion_script.h`. Its functions are exported, so
 /// a program with C beside it writes `comptime { _ = flux.c; }`.
 pub const c = @import("c.zig");
@@ -82,5 +78,4 @@ test {
     _ = service;
     _ = @import("service/complete.zig");
     _ = lsp;
-    _ = edit;
 }

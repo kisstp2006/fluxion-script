@@ -27,8 +27,10 @@ const font = @import("fluxion_font");
 const ui_lib = @import("fluxion_ui");
 const render = @import("fluxion_ui_rhi");
 const flux = @import("fluxion_script");
+const code = @import("fluxion_code");
+const Flux = @import("fluxion_script_code").Flux;
 
-const Code = flux.edit.Code;
+const Code = code.Document;
 const Runner = @import("Runner.zig");
 const panels = @import("panels.zig");
 const theme = @import("theme.zig");
@@ -116,8 +118,34 @@ fn giveOs(context: ?*anyopaque, vm: *flux.Vm) anyerror!void {
     try flux.os.install(vm, @ptrCast(@alignCast(context.?)));
 }
 
+/// A key for the find bar's field, while it has the keys. Whether it took it.
+fn fieldKey(ui: *Ui, editor: *Code, k: platform.event.KeyEvent, ctrl: bool, letter: platform.Key) bool {
+    const shift = k.mods.shift;
+    const action: ui_lib.text_input.Action = switch (k.key) {
+        .left => .moveTo(if (ctrl) .word_left else .left, shift),
+        .right => .moveTo(if (ctrl) .word_right else .right, shift),
+        .home => .moveTo(.start, shift),
+        .end => .moveTo(.end, shift),
+        .backspace => if (ctrl) .backspace_word else .backspace,
+        .delete => if (ctrl) .delete_word else .delete,
+        .enter, .kp_enter => .submit,
+        .escape => {
+            editor.closeFind();
+            ui.setFocus("");
+            return true;
+        },
+        .f3 => {
+            _ = editor.findNext(!shift);
+            return true;
+        },
+        else => if (ctrl and letter == .a) .select_all else if (ctrl and letter == .z) .undo else if (ctrl and letter == .y) .redo else return false,
+    };
+    _ = ui.textAction(action);
+    return true;
+}
+
 /// What a key means to the editor, when it means anything.
-fn editorKey(k: platform.event.KeyEvent) ?flux.edit.Key {
+fn editorKey(k: platform.event.KeyEvent) ?code.Key {
     const letter = if (k.virtual != .unknown) k.virtual else k.key;
     return switch (k.key) {
         .left => .left,
@@ -134,10 +162,14 @@ fn editorKey(k: platform.event.KeyEvent) ?flux.edit.Key {
         .tab => .tab,
         .escape => .escape,
         .space => .space,
+        .f3 => .f3,
         .f12 => .f12,
         .slash => .slash,
         else => switch (letter) {
             .a => .a,
+            .f => .f,
+            .g => .g,
+            .h => .h,
             .y => .y,
             .z => .z,
             else => null,
@@ -207,8 +239,8 @@ pub fn main(init: std.process.Init) !void {
     const font_size: u16 = @intFromFloat(@round(15 * @max(1, scale)));
     const scaled = measured.face.at(@floatFromInt(font_size));
     // The code measures itself through the interface, as any font needs.
-    var ruler: @import("fluxion_script_ui").Ruler = .{ .ui = &ui, .style = .{ .font_size = font_size } };
-    const metrics: flux.edit.Metrics = .{
+    var ruler: code.Ruler = .{ .ui = &ui, .style = .{ .font_size = font_size } };
+    const metrics: code.Metrics = .{
         .font_size = font_size,
         .line_height = @ceil(scaled.lineHeight()),
         .measure = ruler.measure(),
@@ -217,17 +249,17 @@ pub fn main(init: std.process.Init) !void {
     // The script.
     var os_host: flux.os.Host = .{ .io = io, .args = &.{}, .start = std.Io.Timestamp.now(io, .awake) };
     var file_loader: flux.FileLoader = .{ .io = io };
-    const options: flux.service.Options = .{
+    var flux_lang: Flux = .{ .options = .{
         .setup = .{ .context = &os_host, .run = giveOs },
         .loader = file_loader.loader(),
         .io = io,
-    };
+    } };
     const text = if (path) |p| std.Io.Dir.cwd().readFileAlloc(io, p, gpa, .limited(16 << 20)) catch |err| blk: {
         std.log.warn("cannot read {s} ({s}); starting it empty", .{ p, @errorName(err) });
         break :blk try gpa.dupe(u8, "");
     } else try gpa.dupe(u8, welcome);
     defer gpa.free(text);
-    var editor: Code = try .init(gpa, path orelse "untitled.flux", text, options, metrics);
+    var editor: Code = try .init(gpa, path orelse "untitled.flux", text, flux_lang.language(), metrics);
     defer editor.deinit();
     var runner: Runner = .init(gpa, io);
     defer runner.deinit();
@@ -271,13 +303,22 @@ pub fn main(init: std.process.Init) !void {
                 // Ctrl with a letter is a shortcut; ctrl and alt together is
                 // AltGr, which types `{`, `[`, `@` on many keyboards.
                 if (c.mods.control and !c.mods.alt) continue;
+                // The find bar's field, while it has the keys.
+                if (ui.wantsKeyboard()) {
+                    var utf8: [4]u8 = undefined;
+                    const n = std.unicode.utf8Encode(c.codepoint, &utf8) catch continue;
+                    ui.typeText(utf8[0..n]);
+                    continue;
+                }
                 try editor.typeChar(c.codepoint);
             },
             .key => |k| if (k.action.down()) {
                 mods = k.mods;
                 const ctrl = k.mods.control and !k.mods.alt;
                 const letter = if (k.virtual != .unknown) k.virtual else k.key;
-                if (k.key == .f5) {
+                if (ui.wantsKeyboard() and fieldKey(&ui, &editor, k, ctrl, letter)) {
+                    // Taken by the find bar's field.
+                } else if (k.key == .f5) {
                     try runScript(&runner, &editor);
                 } else if (ctrl and letter == .s) {
                     save(&editor, &runner, io);
@@ -330,10 +371,10 @@ pub fn main(init: std.process.Init) !void {
             wheel = 0;
         }
         editor.refresh();
-        if (editor.open_request) |p| {
-            editor.open_request = null;
-            defer gpa.free(p);
-            try open(&editor, &runner, p, io);
+        if (editor.takeRequest()) |request| {
+            defer gpa.free(request.path);
+            try open(&editor, &runner, request.path, io);
+            editor.select(request.start, request.end);
         }
 
         // The frame.
@@ -429,11 +470,13 @@ fn runScript(runner: *Runner, editor: *Code) !void {
 
 /// Writes the file; while the script runs, its new code goes in too.
 fn save(editor: *Code, runner: *Runner, io: std.Io) void {
-    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = editor.path, .data = editor.buffer.text.items }) catch |err| {
+    const bytes = editor.written(editor.gpa) catch return;
+    defer editor.gpa.free(bytes);
+    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = editor.path, .data = bytes }) catch |err| {
         runner.say(.err, "cannot save {s}: {s}", .{ editor.path, @errorName(err) });
         return;
     };
-    editor.buffer.saved = editor.buffer.version;
+    editor.markSaved();
     if (runner.running) runner.reload(editor.buffer.text.items);
 }
 

@@ -199,7 +199,7 @@ end of a line is kept.
 
 - **`flux lsp`** serves the Language Server Protocol. [`editors/vscode`](editors/vscode) is the VS Code extension; [editors](docs/editors.md) has Neovim, Helix, Sublime Text and Emacs.
 - **`flux.service`** is the same as calls, for an editor inside a program - an engine's script editor.
-- **`flux.edit`** is the code editor itself without the drawing - text, undo, keys, completions - and **`fluxion_script_ui`** draws it with fluxion-ui, in any font and in colours of your own. The Fluxion editor's script panel is one.
+- **`fluxion_script_code`** is Flux in [fluxion-code](https://github.com/kisstp2006/fluxion-code)'s editor: the language's words and rules, with the service behind them. fluxion-code does the rest - text, undo, keys, the view on fluxion-ui, finding and replacing - for any language. The Fluxion editor's code panel is one.
 - **`zig build ide`** opens [`examples/ide`](examples/ide), a small IDE on [fluxion-ui](https://github.com/kisstp2006/fluxion-ui): a window around that editor, with the script's members, problems and output, F5 to run, and Ctrl+S while it runs to reload it.
 
 Opening a 2,000-line file, compiling it and colouring it takes about 12 ms,
@@ -308,7 +308,7 @@ being built, never for a program that depends on it.
 | [`src/reload.zig`](src/reload.zig) | reloading, and [`src/reload`](src/reload) moving values to new layouts |
 | [`src/api.zig`](src/api.zig), [`src/c.zig`](src/c.zig) | what a host calls, in Zig and in C |
 | [`src/service`](src/service), [`src/lsp`](src/lsp) | what an editor asks - completions, hovers, colours - and the Language Server Protocol over it |
-| [`src/edit`](src/edit), [`src/ui`](src/ui) | a code editor over the service, and its view on fluxion-ui (`fluxion_script_ui`) |
+| [`src/code.zig`](src/code.zig) | Flux in fluxion-code's editor (`fluxion_script_code`) |
 | [`examples`](examples) | scripts, a Zig and a C host, and [a small IDE](examples/ide) |
 | [`editors`](editors) | the VS Code extension |
 | [`tests`](tests) | scripts with what they print, the unit tests, and the C API's test |
