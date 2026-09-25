@@ -349,6 +349,27 @@ test "a handle on the host's memory is freed by the collector, once" {
     try @import("vm/gc.zig").collect(vm);
 }
 
+/// A host value with memory of its own besides its bytes.
+const Pouch = struct {
+    coins: []u8 = &.{},
+
+    pub const reflect_drop = empty;
+
+    fn empty(self: *Pouch, gpa: std.mem.Allocator) void {
+        gpa.free(self.coins);
+    }
+};
+
+test "a handle the collector frees lets go of what its value owns first" {
+    const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
+    defer vm.destroy();
+    const pouch = try vm.gpa.create(Pouch);
+    pouch.* = .{ .coins = try vm.gpa.dupe(u8, "twelve coins") };
+    _ = try vm.adoptHandle(pouch);
+    // The testing allocator says so if the coins are left behind.
+    try @import("vm/gc.zig").collect(vm);
+}
+
 const Emits = struct {
     count: u32 = 0,
     signal: [16]u8 = undefined,
