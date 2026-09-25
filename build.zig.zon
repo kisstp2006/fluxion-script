@@ -30,8 +30,8 @@
         // package being built, so a game using the language never fetches
         // them. The commits fluxion-ui pins, so each is one package.
         .fluxion_ui = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-ui#08beb4319bd0f7b699858f2941274e4654674bf8",
-            .hash = "fluxion_ui-0.1.0-lw4Ws9xYDwBwmOCzke-4nsNdI_Xp8OuVwqpczT2QcsbP",
+            .url = "git+https://github.com/kisstp2006/fluxion-ui#27237ee765b85aead361798f9d0bac90f6728810",
+            .hash = "fluxion_ui-0.1.0-lw4WszxjDwD8Qj9cvGHedX3MVipG3zouR1Dn34Q-iM3S",
             .lazy = true,
         },
         .fluxion_platform = .{
