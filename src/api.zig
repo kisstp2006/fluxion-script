@@ -102,6 +102,14 @@ pub fn updateHolding(vm: *Vm, dt: f64, held: Held) Vm.Error!void {
     return call_mod.updateHolding(vm, dt, held);
 }
 
+/// Stop every task of `owner` where it waits - its time, a signal, another
+/// task: none of them goes on, and a task of another owner waiting for one
+/// fails at its `await`. What an engine does when the entity a task is of
+/// goes. How many were stopped; nothing for owner `0`.
+pub fn stopTasks(vm: *Vm, owner: u64) Vm.Error!usize {
+    return call_mod.stopTasks(vm, owner);
+}
+
 /// The owner every task started from now on is given - unless it is
 /// started by another task, whose owner it takes - and the one there was
 /// before, to put back. The host's to count: an engine gives the entity

@@ -121,6 +121,10 @@ pub fn valueOf(vm: *Vm, rv: reflect.Value) Error!Value {
             return copied(vm, rv);
         },
         .void, .bool, .int, .float, .@"enum" => return toFlux(vm, rv, .null),
+        .@"union" => {
+            if (rv.active()) |arm| if (arm.type.kind == .void) return vm.string(arm.name.slice());
+            return copied(vm, rv);
+        },
         else => return copied(vm, rv),
     }
 }
@@ -212,6 +216,11 @@ fn toFluxAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) 
             const inner = rv.unwrap() orelse return .null;
             return toFluxAt(vm, inner, owner, step);
         },
+        .@"union" => {
+            // An arm that holds nothing is its name, as an enum's member is.
+            if (rv.active()) |arm| if (arm.type.kind == .void) return vm.string(arm.name.slice());
+            return handleAt(vm, rv, owner, step);
+        },
         .pointer => {
             if (t.isString()) if (rv.toString()) |s| return vm.string(s);
             if (t.info.pointer.size == .one) {
@@ -283,6 +292,23 @@ pub fn fromFlux(vm: *Vm, rv: reflect.Value, v: Value) Error!void {
             if (v.tag == .null) return rv.setNull() catch |err| check(vm, err, t, v);
             const inner = rv.unwrapOrInit() catch |err| return check(vm, err, t, v);
             return fromFlux(vm, inner, v);
+        },
+        .@"union" => {
+            // A tagged union's arm that holds nothing, by its name:
+            // `setFullscreen("borderless")`. One that holds something needs
+            // it given, which a name cannot.
+            if (v.tag == .string and t.info.@"union".tag != null) {
+                const name = v.as(object.String).bytes();
+                const i = t.fieldIndex(name) orelse return vm.fail("{s} has no arm \"{s}\"", .{ t.name.slice(), name });
+                if (t.fields()[i].type.kind != .void) return vm.fail("{s}.{s} holds a {s}, which a name does not give", .{ t.name.slice(), name, t.fields()[i].type.name.slice() });
+                _ = rv.activateAt(i) catch |err| return check(vm, err, t, v);
+                return;
+            }
+            if (v.tag == .handle) {
+                rv.copyFrom(try resolve(vm, v.as(object.Handle))) catch |err| return check(vm, err, t, v);
+                return;
+            }
+            return refused(vm, t, v);
         },
         .@"struct" => {
             if (vectorLength(t)) |n| {

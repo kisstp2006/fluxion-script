@@ -96,6 +96,36 @@ test "a task started for an owner the host holds waits while it is held, and so 
     try testing.expectEqual(@as(i64, 111), vm.get(m, "rang").?.asInt());
 }
 
+test "the tasks of an owner that is gone are stopped, and what waits for one fails" {
+    const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
+    defer vm.destroy();
+    const m = try vm.load("gone.flux",
+        \\var rang = 0;
+        \\fn bell(by: int) { await wait(1.0); rang += by; }
+        \\fn watcher(t: task) { _ = await t; }
+    );
+    const before = vm.setTaskOwner(7);
+    const doomed = try vm.callName(m, "bell", &.{.int(1)});
+    try vm.hold(doomed);
+    defer vm.release(doomed);
+    _ = vm.setTaskOwner(before);
+    _ = try vm.callName(m, "bell", &.{.int(10)});
+    const watching = try vm.callName(m, "watcher", &.{doomed});
+    try vm.hold(watching);
+    defer vm.release(watching);
+
+    try testing.expectEqual(@as(usize, 1), try vm.stopTasks(7));
+    try testing.expectEqual(@as(usize, 0), try vm.stopTasks(7));
+    try testing.expectEqual(@as(usize, 0), try vm.stopTasks(0));
+    try vm.update(2.0);
+    // Only the task of no owner rang; the one waiting for the stopped one
+    // failed at its `await`, saying why.
+    try testing.expectEqual(@as(i64, 10), vm.get(m, "rang").?.asInt());
+    const watcher = watching.as(object.Task);
+    try testing.expectEqual(object.Task.State.failed, watcher.state);
+    try testing.expect(std.mem.indexOf(u8, watcher.failure.?, "its owner is gone") != null);
+}
+
 test "a host makes an instance with its defaults, and calls what it declares" {
     const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
     defer vm.destroy();

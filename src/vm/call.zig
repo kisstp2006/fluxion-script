@@ -291,6 +291,29 @@ fn failAwait(vm: *Vm, t: *object.Task, why: []u8) exec.RunError!Value {
     return vm.fail("the awaited task failed: {s}", .{why});
 }
 
+/// Stop every waiting task `owner` has: none of them goes on, and a task
+/// waiting for one of them fails at its `await`, as for a task that failed.
+/// How many were stopped.
+pub fn stopTasks(vm: *Vm, owner: u64) Error!usize {
+    if (owner == 0) return 0;
+    var stopped: std.ArrayList(*object.Task) = .empty;
+    defer stopped.deinit(vm.gpa);
+    for (vm.scheduler.all.items) |t| {
+        if (t.owner == owner and t.state == .suspended) try stopped.append(vm.gpa, t);
+    }
+    // All of them first, so that none is woken by another being stopped.
+    for (stopped.items) |t| {
+        vm.scheduler.cancelTimer(t);
+        while (t.fiber.frames.items.len > 0) unwind(vm, &t.fiber);
+        t.await_reg = null;
+        t.waiting_on = .null;
+        t.state = .failed;
+        if (t.failure == null) t.failure = try vm.gpa.dupe(u8, "its owner is gone");
+    }
+    for (stopped.items) |t| try wakeWaiters(vm, t);
+    return stopped.items.len;
+}
+
 pub fn wakeWaiters(vm: *Vm, t: *object.Task) Error!void {
     const tv: Value = .fromObj(.task, &t.obj);
     try vm.pushRoot(tv);

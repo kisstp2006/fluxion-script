@@ -199,6 +199,7 @@ pub const update = api.update;
 pub const updateHolding = api.updateHolding;
 pub const Held = api.Held;
 pub const setTaskOwner = api.setTaskOwner;
+pub const stopTasks = api.stopTasks;
 pub const writeDiagnostics = api.writeDiagnostics;
 pub const writePanic = api.writePanic;
 pub const define = api.define;

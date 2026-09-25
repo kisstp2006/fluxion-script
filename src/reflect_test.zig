@@ -93,6 +93,51 @@ test "a Zig struct read, written and called from a script" {
     try testing.expectEqualStrings("reflect_test.Player has no field `hpp`; did you mean `hp`?", vm.panic.?.message);
 }
 
+/// A tagged union whose arms mostly hold nothing: a window's fullscreen.
+const Fill = union(enum) { windowed, borderless, exclusive: u32 };
+
+const Screen = struct {
+    fill: Fill = .windowed,
+
+    pub const reflect_methods = .{ .setFill, .filled };
+
+    pub fn setFill(self: *Screen, fill: Fill) void {
+        self.fill = fill;
+    }
+
+    pub fn filled(self: *const Screen) Fill {
+        return self.fill;
+    }
+};
+
+test "a tagged union's empty arm goes and comes by its name" {
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    const vm = try Vm.create(testing.allocator, .{ .out = &out.writer });
+    defer vm.destroy();
+    const m = try vm.load("fill.flux",
+        \\fn go(s) {
+        \\    print(s.fill, s.filled());
+        \\    s.setFill("borderless");
+        \\    print(s.filled());
+        \\    s.fill = "windowed";
+        \\}
+        \\fn full(s) { s.setFill("exclusive"); }
+        \\fn wrong(s) { s.setFill("sideways"); }
+    );
+    var screen: Screen = .{};
+    const h = try vm.handle(&screen);
+    _ = try vm.callName(m, "go", &.{h});
+    try testing.expectEqualStrings("windowed windowed\nborderless\n", out.written());
+    try testing.expectEqual(Fill.windowed, screen.fill);
+
+    try testing.expectError(error.Panic, vm.callName(m, "full", &.{h}));
+    try testing.expect(std.mem.indexOf(u8, vm.panic.?.message, "exclusive holds a u32") != null);
+    vm.clearPanic();
+    try testing.expectError(error.Panic, vm.callName(m, "wrong", &.{h}));
+    try testing.expect(std.mem.indexOf(u8, vm.panic.?.message, "has no arm \"sideways\"") != null);
+}
+
 test "a handle the script owns is freed with it" {
     const vm = try Vm.create(testing.allocator, .{});
     defer vm.destroy();

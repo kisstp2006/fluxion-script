@@ -101,7 +101,9 @@ _ = try vm.call(update, &.{p});
 A script reads and writes the struct's fields by name and calls the
 methods `reflect_methods` lists, through
 [Fluxion Reflect](https://github.com/kisstp2006/fluxion-reflect):
-`player.hp -= 3`, `player.pos.x += 1`, `player.heal(5)`. A wrong type is
+`player.hp -= 3`, `player.pos.x += 1`, `player.heal(5)`. An enum's member
+and a tagged union's arm that holds nothing go both ways as their names:
+`window.setFullscreen("borderless")`. A wrong type is
 a panic that names the field; a misspelt name gets a "did you mean". The
 value must outlive the scripts' use of it; `vm.newHandle(T)` makes one the
 script owns instead, freed with the handle, and `vm.adoptHandle(pointer)`
@@ -274,7 +276,9 @@ outside any has whatever `setTaskOwner` last said, `0` at first. While its
 owner is held a task's wait stands still - it neither wakes nor comes nearer
 to waking - and it picks up where it was once it is not. A task woken by a
 signal or by another task finishing wakes either way: what woke it is
-running.
+running. An owner that is gone for good - an entity despawned - has its
+tasks stopped with `vm.stopTasks(entity_id)`: none of them goes on, and a
+task of another owner waiting for one fails at its `await`.
 
 A mistake at run time returns `error.Panic` from the call that met it.
 `vm.panic` holds the message and every frame; `vm.writePanic(w, .{})`
