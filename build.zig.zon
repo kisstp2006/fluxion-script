@@ -25,6 +25,15 @@
             .hash = "fluxion_reflect-0.1.0-Aw2l_wugBQBox00gw_VtykRfPLtzzAWQYde2AxOdpxAU",
         },
 
+        // Flux in its code editor, `fluxion_script_code`. Lazy, and asked for
+        // only when this is the package being built or a dependant asks
+        // for `.code = true`.
+        .fluxion_code = .{
+            .url = "git+https://github.com/kisstp2006/fluxion-code#2deb29eb4a16aeaa77d69d99add27e1105e57203",
+            .hash = "fluxion_code-0.1.0-hzHnKLkoAgC-yAQXkJroZcpY7F2OD1VETtBfld92eadT",
+            .lazy = true,
+        },
+
         // What the mini IDE in `examples/ide` draws with: a window, a GPU, a
         // font and fluxion-ui. Lazy, and asked for only when this is the
         // package being built, so a game using the language never fetches
