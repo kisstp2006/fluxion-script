@@ -496,3 +496,60 @@ test "a host's own type is seen as the host says" {
     try testing.expectEqual(@as(u32, 7), crowd.followed);
     try testing.expectEqual(@as(u32, 4), crowd.leader.index);
 }
+
+/// A player of clips: its last parameters have defaults, its name is written
+/// through a method, and kept in an array padded with zeros.
+const Deck = struct {
+    name: [16]u8 = @splat(0),
+    speed: f32 = 1,
+    restarted: u32 = 0,
+
+    pub const reflect_methods = .{
+        .play = .{ reflect.attr.Params{ .names = &.{ "name", "speed", "from_end" } }, reflect.attr.defaults(.{ "", 1.0, false }) },
+        .setName = .{reflect.attr.Params{ .names = &.{"name"} }},
+    };
+    pub const reflect_fields = .{ .name = .{reflect.attr.Setter{ .method = "setName" }} };
+
+    pub fn play(self: *Deck, name: []const u8, speed: f32, from_end: bool) void {
+        if (name.len > 0) self.setName(name);
+        self.speed = if (from_end) -speed else speed;
+    }
+
+    pub fn setName(self: *Deck, name: []const u8) void {
+        const n = @min(name.len, self.name.len);
+        self.name = @splat(0);
+        @memcpy(self.name[0..n], name[0..n]);
+        self.restarted += 1;
+    }
+};
+
+test "a method's last arguments may be left out, a field is written through its setter, and a name is its text" {
+    const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
+    defer vm.destroy();
+    const m = try vm.load("deck.flux",
+        \\fn all(d) { d.play("run", 2.0, true); return d.speed; }
+        \\fn some(d) { d.play("walk"); return d.speed; }
+        \\fn none(d) { d.play(); return d.name; }
+        \\fn named(d) { d.name = "jump"; return d.name; }
+        \\fn many(d) { d.play("a", 1.0, false, 4); }
+    );
+    var deck: Deck = .{};
+    const h = try vm.handle(&deck);
+    try vm.hold(h);
+    defer vm.release(h);
+
+    try testing.expectEqual(@as(f64, -2), (try vm.callName(m, "all", &.{h})).asFloat());
+    try testing.expectEqualStrings("run", std.mem.sliceTo(&deck.name, 0));
+    try testing.expectEqual(@as(f64, 1), (try vm.callName(m, "some", &.{h})).asFloat());
+    try testing.expectEqualStrings("walk", std.mem.sliceTo(&deck.name, 0));
+    // Nothing given: the name stays, and reads without the zeros after it.
+    try testing.expectEqualStrings("walk", (try vm.callName(m, "none", &.{h})).as(object.String).bytes());
+    try testing.expectEqual(@as(u32, 2), deck.restarted);
+
+    try testing.expectEqualStrings("jump", (try vm.callName(m, "named", &.{h})).as(object.String).bytes());
+    try testing.expectEqual(@as(u32, 3), deck.restarted);
+
+    try testing.expectError(error.Panic, vm.callName(m, "many", &.{h}));
+    try testing.expectEqualStrings("`play` takes 0 to 3 arguments, and was given 4", vm.panic.?.message);
+    vm.clearPanic();
+}

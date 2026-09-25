@@ -112,6 +112,29 @@ script may keep after the host is done with it. A value known only at run time
 as a `fluxion_reflect.Value` - a component found by name - is
 `vm.handleOf(value)`.
 
+A method's last arguments may be left out when its `reflect_methods` entry
+gives them defaults, and a field may be written through a method of its own
+(both are Fluxion Reflect attributes). A name kept in a `[N]u8` reads as its
+text, without the zeros that pad it:
+
+```zig
+const Clip = struct {
+    name: [32]u8 = @splat(0),
+
+    pub const reflect_methods = .{
+        .play = .{ attr.Params{ .names = &.{ "name", "speed" } }, attr.defaults(.{ "", 1.0 }) },
+        .setName = .{},
+    };
+    // `clip.name = "run"` calls `clip.setName("run")`.
+    pub const reflect_fields = .{ .name = .{attr.Setter{ .method = "setName" }} };
+    ...
+};
+```
+
+`clip.play()`, `clip.play("run")` and `clip.play("run", 2.0)` all call it;
+a call given too few or too many says how many it takes: "`play` takes 0 to
+2 arguments, and was given 3".
+
 A reflected method may take the VM calling it, as its first parameter after
 `self`, and return a `flux.Value` as it is - which is how a method hands a
 script something only the VM can make:

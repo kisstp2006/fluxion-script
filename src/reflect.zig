@@ -113,7 +113,7 @@ pub fn valueOf(vm: *Vm, rv: reflect.Value) Error!Value {
             return listOf(vm, rv);
         },
         .slice, .array => {
-            if (t.isString()) if (rv.toString()) |s| return vm.string(s);
+            if (t.isString()) if (rv.toString()) |s| return vm.string(textOf(t, s));
             return listOf(vm, rv);
         },
         .@"struct" => {
@@ -230,7 +230,7 @@ fn toFluxAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) 
             return handleAt(vm, rv, owner, step);
         },
         .slice, .array => {
-            if (t.isString()) if (rv.toString()) |s| return vm.string(s);
+            if (t.isString()) if (rv.toString()) |s| return vm.string(textOf(t, s));
             return handleAt(vm, rv, owner, step);
         },
         .@"struct" => {
@@ -242,6 +242,13 @@ fn toFluxAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) 
         },
         else => return handleAt(vm, rv, owner, step),
     }
+}
+
+/// A string's text: an array of bytes - a name kept in a component - is its
+/// bytes up to the first zero, which pads out the rest.
+fn textOf(t: *const reflect.Type, s: []const u8) []const u8 {
+    if (t.kind != .array) return s;
+    return std.mem.sliceTo(s, 0);
 }
 
 fn refused(vm: *Vm, t: *const reflect.Type, v: Value) Error {
@@ -363,6 +370,13 @@ pub fn get(vm: *Vm, h: Value, name: []const u8) Error!Value {
 
 pub fn set(vm: *Vm, h: Value, name: []const u8, v: Value) Error!void {
     const rv = target(try resolve(vm, h.as(object.Handle)));
+    // A field with a setter is written through it: the change has more to
+    // do than be stored.
+    if (rv.type.field(name)) |field| if (field.attribute(reflect.attr.Setter)) |setter| {
+        const m = rv.type.method(setter.method) orelse return vm.fail("{s}.{s} is written through `{s}`, which a script cannot call", .{ rv.type.name.slice(), name, setter.method });
+        _ = try invoke(vm, m, &.{ h, v });
+        return;
+    };
     const f = rv.field(name) catch {
         if (vm.options.host_set_member) |hook| if (try hook(vm, h, name, v)) return;
         return noField(vm, rv.type, name);
@@ -405,6 +419,13 @@ const max_args = 16;
 fn callMethod(vm: *Vm, args: []Value) Error!Value {
     const n = vm.current_native.?;
     const m: *const reflect.Method = @ptrCast(@alignCast(n.data.?));
+    return invoke(vm, m, args);
+}
+
+/// Calls `m` with `args`, the first the value it belongs to. The last
+/// arguments may be left out when the method gives them defaults
+/// (`attr.defaults`): those are filled in.
+fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value) Error!Value {
     const f = m.type.info.function;
     const params = f.params.slice();
     if (args.len == 0 or args[0].tag != .handle) return vm.fail("`{s}` is called on the value it belongs to", .{m.name.slice()});
@@ -412,7 +433,13 @@ fn callMethod(vm: *Vm, args: []Value) Error!Value {
     for (params[1..]) |p| {
         if (!p.type.is(*Vm)) wanted += 1;
     }
-    if (args.len - 1 != wanted) return vm.fail("`{s}` takes {d} argument{s}, and was given {d}", .{ m.name.slice(), wanted, if (wanted == 1) "" else "s", args.len - 1 });
+    const defaults = m.defaultArgs();
+    const least = wanted -| defaults.len;
+    const given = args.len - 1;
+    if (given < least or given > wanted) {
+        if (least == wanted) return vm.fail("`{s}` takes {d} argument{s}, and was given {d}", .{ m.name.slice(), wanted, if (wanted == 1) "" else "s", given });
+        return vm.fail("`{s}` takes {d} to {d} arguments, and was given {d}", .{ m.name.slice(), least, wanted, given });
+    }
     if (params.len > max_args) return vm.fail("`{s}` takes too many arguments to call from a script", .{m.name.slice()});
     var storage: [max_args][64]u8 align(16) = undefined;
     var values: [max_args]reflect.Value = undefined;
@@ -422,6 +449,16 @@ fn callMethod(vm: *Vm, args: []Value) Error!Value {
         if (p.type.is(*Vm)) {
             values[i] = .init(p.type, &storage[i]);
             @as(**Vm, @ptrCast(&storage[i])).* = vm;
+            continue;
+        }
+        if (next == args.len) {
+            // Not given: the method's default for it, the last parameters
+            // being the ones that have them.
+            const first_defaulted = params.len - defaults.len;
+            if (i < first_defaulted or p.type.size > 64) return vm.fail("argument {d} of `{s}` was not given", .{ i, m.name.slice() });
+            const d = defaults[i - first_defaulted];
+            values[i] = .init(p.type, &storage[i]);
+            @memcpy(storage[i][0..p.type.size], @as([*]const u8, @ptrCast(d.value))[0..p.type.size]);
             continue;
         }
         const a = args[next];
