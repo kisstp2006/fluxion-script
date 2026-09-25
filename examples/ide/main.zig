@@ -366,8 +366,7 @@ pub fn main(init: std.process.Init) !void {
         }
         pressed = false;
         if (wheel != 0) {
-            const ids = panels.code_view.ids;
-            if (ui.isPointerOver(ids.code) and !ui.isPointerOver(ids.completion)) editor.scroll(wheel, mods.shift) else _ = ui.scrollHovered(0, -wheel * 40);
+            if (panels.code_view.under(&ui)) editor.scroll(wheel, mods.shift) else _ = ui.scrollHovered(0, -wheel * 40);
             wheel = 0;
         }
         editor.refresh();
