@@ -29,8 +29,8 @@
         // only when this is the package being built or a dependant asks
         // for `.code = true`.
         .fluxion_code = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-code#55e26a08eb0d9ae7083e4a7a647f9f35db38ddec",
-            .hash = "fluxion_code-0.1.0-hzHnKPEzAgArYwRXCxFHjYzG-Fg-MLszv7UFxqMn7DvV",
+            .url = "git+https://github.com/kisstp2006/fluxion-code#993c46bf8ee5f5bd932e874c2af2ef3584eae19c",
+            .hash = "fluxion_code-0.1.0-hzHnKJg3AgD6lcB2ef6wYDRGlWJhLb_XvTM8BmaQxpis",
             .lazy = true,
         },
 
