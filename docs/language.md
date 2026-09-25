@@ -68,7 +68,7 @@ function may call one declared below it.
 | `float` | a 64-bit float | `2.5`, `1.5e3`, `0.5` (not `.5`) |
 | `string` | UTF-8 text, never changed in place | `"hi\n"`, `f"x is {x}"`, multi-line below |
 | `vec2`, `vec3` | two or three 32-bit floats, held in the value | `vec2(1, 2)`, `vec3(1, 2, 3)` |
-| `color` | four floats, red green blue alpha | `color("#FF8000")`, `color(1, 0.5, 0)` |
+| `color` | four floats, red green blue alpha | `color("#FF8000")`, `color(1, 0.5, 0)`, `color("royalblue")`, `hsv(30, 1, 1)` |
 | `[T]` | a list of `T` | `[1, 2, 3]`, `[]` |
 | `[K: V]` | a map from `K` to `V`, in the order keys were added | `{"hp": 10}`, `{}` |
 | `?T` | a `T`, or null | |
@@ -416,8 +416,11 @@ Their methods: `length` `length_squared` `normalized` `dot` `distance_to`
 `clamp` `min` `max` `abs` `floor` `ceil` `round` `is_zero` `cross`; and for
 `vec2` only `angle` `angle_to` `rotated` `orthogonal`.
 
-`color("#FF8000")`, `color("#FF800080")`, `color(r, g, b)`, `color(r, g, b, a)`
-or `color(grey)`; its parts are `.r .g .b .a`, floats from 0 to 1.
+`color("#FF8000")`, `color("#FF800080")`, `color("#F80")`, `color(r, g, b)`,
+`color(r, g, b, a)` or `color(grey)`; `color("royalblue")` by any of the web's
+148 names, whatever their case; and `hsv(h, s, v)` or `hsv(h, s, v, a)`, the
+hue in degrees round the wheel (0 red, 120 green, 240 blue). Its parts are
+`.r .g .b .a`, floats from 0 to 1.
 
 ## Tasks and `await`
 
@@ -525,7 +528,7 @@ Everywhere, with nothing imported:
 | `str(x)` `typeof(x)` | text |
 | `int(x)` | an int from a float (dropping the fraction), a bool, an enum member, or text. From text - or from a value that may be text - it gives `!int`, since the text may be no number. |
 | `float(x)` | the same, to a float |
-| `vec2(...)` `vec3(...)` `color(...)` | make one |
+| `vec2(...)` `vec3(...)` `color(...)` `hsv(...)` | make one |
 | `wait(seconds)` | something to `await` |
 | `min(...)` `max(...)` | of their arguments, or of one list |
 | `abs(x)` `clamp(x, lo, hi)` | numbers and vectors |

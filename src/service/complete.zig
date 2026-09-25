@@ -22,6 +22,7 @@ const types = @import("../compile/types.zig");
 const Type = types.Type;
 const service = @import("../service.zig");
 const Kind = service.Kind;
+const color_names = @import("../lib/color_names.zig");
 const Analysis = @import("Analysis.zig");
 const cursor = @import("cursor.zig");
 const docs = @import("docs.zig");
@@ -37,6 +38,8 @@ pub const Item = struct {
     /// Offered first when lower: the locals, then what the value or the
     /// module has, then the prelude, then the keywords.
     rank: u8 = 0,
+    /// A colour's name offered: the colour, 0xRRGGBB.
+    color: ?u24 = null,
 };
 
 pub const Completions = struct {
@@ -48,19 +51,32 @@ pub const Completions = struct {
 
 /// What could be typed at `offset` in `source`, the file `name`.
 pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []const u8, offset: u32, options: service.Options) service.Error!Completions {
-    // Inside the quotes of a string a call takes: what the host says it may
-    // say.
-    if (options.strings) |strings| if (try cursor.stringArgument(gpa, source, offset)) |at| {
-        const values = try strings.values(strings.context, arena, at);
-        const items = try arena.alloc(Item, values.len);
-        for (values, items) |value, *it| it.* = .{
-            .label = try arena.dupe(u8, value.label),
-            .kind = .enum_member,
-            .detail = try arena.dupe(u8, value.detail),
-            .doc = if (value.doc) |d| try arena.dupe(u8, d) else null,
-        };
-        return .{ .items = items, .start = at.start, .end = at.end };
-    };
+    if (try cursor.stringArgument(gpa, source, offset)) |at| {
+        // Inside `color("`: the colours' names.
+        if (at.receiver == null and at.arg == 0 and std.mem.eql(u8, at.callee, "color")) {
+            const items = try arena.alloc(Item, color_names.names.len);
+            for (color_names.names, items) |n, *it| it.* = .{
+                .label = n.name,
+                .kind = .constant,
+                .detail = try std.fmt.allocPrint(arena, "#{X:0>6}", .{n.rgb}),
+                .color = n.rgb,
+            };
+            return .{ .items = items, .start = at.start, .end = at.end };
+        }
+        // Inside the quotes of a string a call takes: what the host says it
+        // may say.
+        if (options.strings) |strings| {
+            const values = try strings.values(strings.context, arena, at);
+            const items = try arena.alloc(Item, values.len);
+            for (values, items) |value, *it| it.* = .{
+                .label = try arena.dupe(u8, value.label),
+                .kind = .enum_member,
+                .detail = try arena.dupe(u8, value.detail),
+                .doc = if (value.doc) |d| try arena.dupe(u8, d) else null,
+            };
+            return .{ .items = items, .start = at.start, .end = at.end };
+        }
+    }
     const ctx = try cursor.at(gpa, source, offset);
     var list: std.ArrayList(Item) = .empty;
     var out: Completions = .{ .items = &.{}, .start = ctx.start, .end = ctx.end };

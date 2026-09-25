@@ -32,5 +32,9 @@ print(b.position);
 const c = color("#FF8000");
 print(c.r, c.g > 0.5, c.b, c.a);
 // out: 1.0 true 0.0 1.0
+print(color("RoyalBlue") == color("#4169E1"), color("#F80") == color("#FF8800"), color("#F808").a > 0.5);
+// out: true true true
+print(hsv(240, 1, 1) == color("blue"), hsv(-120, 1, 1) == color("blue"), hsv(0, 0, 1, 0.5).a);
+// out: true true 0.5
 print(math.floor(2.7), math.sqrt(16.0), math.pow(2, 10), math.mod(-1, 5), math.lerp(0.0, 10.0, 0.25));
 // out: 2 4.0 1024 4 2.5

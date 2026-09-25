@@ -25,6 +25,7 @@ pub const renderPanic = @import("vm/panic.zig").render;
 pub const gc = @import("vm/gc.zig");
 pub const disasm = @import("disasm.zig");
 pub const os = @import("lib/os.zig");
+pub const color_names = @import("lib/color_names.zig");
 pub const bind = @import("bind.zig");
 pub const FileLoader = @import("api.zig").FileLoader;
 

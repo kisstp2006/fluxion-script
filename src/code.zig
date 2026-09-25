@@ -34,6 +34,7 @@ pub const Flux = struct {
             // What colours it while the service has not said: a file that
             // does not read at all.
             .lexis = .{ .keywords = flux.syntax.token.keywords.keys(), .quotes = "\"", .numbers = true },
+            .colors = &color_forms,
             .service = .{
                 .context = self,
                 .analyze = analyze,
@@ -52,6 +53,22 @@ pub const Flux = struct {
     fn of(context: ?*anyopaque) *Flux {
         return @ptrCast(@alignCast(context.?));
     }
+};
+
+/// How Flux writes a colour: `color(r, g, b[, a])`, `color("#RRGGBB")`,
+/// `hsv(h, s, v[, a])` and `color("name")`, which the editor puts a swatch
+/// and a picker before.
+const color_forms = [_]code.colors.Form{
+    .{ .channels = .{ .call = "color" } },
+    .{ .hex = .{ .call = "color" } },
+    .{ .hsv = .{ .call = "hsv" } },
+    .{ .named = .{ .call = "color", .names = &color_names } },
+};
+
+const color_names = names: {
+    var out: [flux.color_names.names.len]code.colors.Name = undefined;
+    for (flux.color_names.names, &out) |n, *o| o.* = .{ .name = n.name, .rgb = n.rgb };
+    break :names out;
 };
 
 fn analysisOf(state: ?*anyopaque) ?*service.Analysis {
@@ -130,6 +147,12 @@ fn complete(context: ?*anyopaque, gpa: Allocator, arena: Allocator, path: []cons
             .doc = item.doc,
             .rank = item.rank,
             .call = if (!callable) .none else if (std.mem.indexOf(u8, item.detail, "()") != null) .empty else .arguments,
+            .swatch = if (item.color) |rgb| .{
+                @as(f32, @floatFromInt(rgb >> 16)) / 255,
+                @as(f32, @floatFromInt((rgb >> 8) & 0xFF)) / 255,
+                @as(f32, @floatFromInt(rgb & 0xFF)) / 255,
+                1,
+            } else null,
         };
     }
     return .{ .items = items, .start = found.start, .end = found.end };
@@ -302,4 +325,28 @@ test "a quote opened for a call the host knows the strings of offers them, and a
     try testing.expectEqualStrings("crouch", ed.selectedItem().?.label);
     try ed.accept(ed.completion.selected);
     try testing.expect(std.mem.indexOf(u8, ed.buffer.text.items, "app.actionDown(\"crouch\"") != null);
+}
+
+test "a colour's name is offered in color's quotes with its swatch, and Flux's colours have swatches of their own" {
+    const gpa = testing.allocator;
+    var flux_lang: Flux = .{};
+    var ed: code.Document = try .init(gpa, "t.flux", "const a = color(\"ro\");\nconst b = hsv(240, 1, 1);\nconst c = color(0.5, 0.5, 0.5);\n", flux_lang.language(), metrics);
+    defer ed.deinit();
+    ed.buffer.moveTo(19, false);
+    ed.complete();
+    try testing.expect(ed.completion.open);
+    const item = ed.selectedItem() orelse return error.TestExpectedEqual;
+    try testing.expectEqualStrings("rosybrown", item.label);
+    try testing.expectEqual([4]f32{ 188.0 / 255.0, 143.0 / 255.0, 143.0 / 255.0, 1 }, item.swatch.?);
+    _ = try ed.key(.down, .{});
+    _ = try ed.key(.enter, .{});
+    try testing.expect(std.mem.startsWith(u8, ed.buffer.text.items, "const a = color(\"royalblue\");"));
+
+    ed.refresh();
+    try testing.expectEqual(@as(usize, 3), ed.colors.len);
+    try testing.expectEqual(@as(f32, 0x41) / 255, ed.colors[0].color.r);
+    try testing.expectEqual(@as(f32, 1), ed.colors[1].color.b);
+    // Written back in another of Flux's ways.
+    try testing.expect(try ed.setColor(ed.colors[2].start, ed.colors[2].color, 1));
+    try testing.expect(std.mem.endsWith(u8, ed.buffer.text.items, "const c = color(\"#808080\");\n"));
 }

@@ -199,7 +199,7 @@ end of a line is kept.
 
 - **`flux lsp`** serves the Language Server Protocol. [`editors/vscode`](editors/vscode) is the VS Code extension; [editors](docs/editors.md) has Neovim, Helix, Sublime Text and Emacs.
 - **`flux.service`** is the same as calls, for an editor inside a program - an engine's script editor.
-- **`fluxion_script_code`** is Flux in [fluxion-code](https://github.com/kisstp2006/fluxion-code)'s editor: the language's words and rules, with the service behind them. fluxion-code does the rest - text, undo, keys, the view on fluxion-ui, finding and replacing - for any language. The Fluxion editor's code panel is one.
+- **`fluxion_script_code`** is Flux in [fluxion-code](https://github.com/kisstp2006/fluxion-code)'s editor: the language's words and rules, with the service behind them. fluxion-code does the rest - text, undo, keys, the view on fluxion-ui, finding and replacing - for any language. Flux's colours (`color(...)`, `hsv(...)`, `color("name")`) get a swatch and a picker, and a colour's name is offered in `color("`'s quotes. The Fluxion editor's code panel is one.
 - **`zig build ide`** opens [`examples/ide`](examples/ide), a small IDE on [fluxion-ui](https://github.com/kisstp2006/fluxion-ui): a window around that editor, with the script's members, problems and output, F5 to run, and Ctrl+S while it runs to reload it.
 
 Opening a 2,000-line file, compiling it and colouring it takes about 12 ms,

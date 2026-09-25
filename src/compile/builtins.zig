@@ -144,7 +144,7 @@ pub fn preludeReturn(c: *Compiler, name: []const u8, args: []const Type) Error!T
     if (eq(u8, name, "float")) return if (args.len > 0 and mayBeText(c, args[0])) c.pool.errorUnion(.float) else .float;
     if (eq(u8, name, "vec2")) return .vec2;
     if (eq(u8, name, "vec3")) return .vec3;
-    if (eq(u8, name, "color")) return .color;
+    if (eq(u8, name, "color") or eq(u8, name, "hsv")) return .color;
     if (eq(u8, name, "wait")) return .float;
     if (eq(u8, name, "range")) return c.pool.list(.int);
     if (eq(u8, name, "abs")) return if (args.len > 0 and !Compiler.dynamic(args[0])) args[0] else .any;

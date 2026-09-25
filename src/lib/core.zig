@@ -13,6 +13,7 @@ const types = @import("../vm/types.zig");
 const ops = @import("../vm/ops.zig");
 const text = @import("fluxion_text");
 const native = @import("native.zig");
+const color_names = @import("color_names.zig");
 const Error = native.Error;
 
 pub fn install(vm: *Vm) std.mem.Allocator.Error!void {
@@ -26,6 +27,7 @@ pub fn install(vm: *Vm) std.mem.Allocator.Error!void {
     try native.define(vm, "vec2", vec2, 0, 2);
     try native.define(vm, "vec3", vec3, 0, 3);
     try native.define(vm, "color", color, 1, 4);
+    try native.define(vm, "hsv", hsv, 3, 4);
     try native.define(vm, "wait", wait, 1, 1);
     try native.define(vm, "min", min, 1, null);
     try native.define(vm, "max", max, 1, null);
@@ -149,9 +151,8 @@ fn vec3(vm: *Vm, args: []Value) Error!Value {
 fn color(vm: *Vm, args: []Value) Error!Value {
     if (args.len == 1) {
         if (args[0].tag == .string) {
-            const hex = std.mem.trimStart(u8, args[0].as(object.String).bytes(), "#");
-            const n = std.fmt.parseInt(u32, hex, 16) catch return vm.fail("\"{s}\" is not a colour; write it as \"#RRGGBB\" or \"#RRGGBBAA\"", .{args[0].as(object.String).bytes()});
-            const rgba: u32 = if (hex.len == 6) (n << 8) | 0xFF else if (hex.len == 8) n else return vm.fail("a hex colour has 6 or 8 digits", .{});
+            const s = args[0].as(object.String).bytes();
+            const rgba = colorOf(s) orelse return vm.fail("\"{s}\" is not a colour: write it as \"#RRGGBB\", \"#RRGGBBAA\", \"#RGB\" or a name, as \"royalblue\"", .{s});
             return make.color(vm, .{
                 @as(f32, @floatFromInt((rgba >> 24) & 0xFF)) / 255,
                 @as(f32, @floatFromInt((rgba >> 16) & 0xFF)) / 255,
@@ -166,6 +167,54 @@ fn color(vm: *Vm, args: []Value) Error!Value {
     var c: [4]f32 = .{ 0, 0, 0, 1 };
     for (args, 0..) |_, i| c[i] = @floatCast(try native.float(vm, args, i));
     return make.color(vm, c);
+}
+
+/// A colour written as text, as 0xRRGGBBAA: `"#RRGGBB"`, `"#RRGGBBAA"`,
+/// `"#RGB"`, `"#RGBA"`, or one of the web's names.
+fn colorOf(s: []const u8) ?u32 {
+    if (s.len == 0 or s[0] != '#') return (@as(u32, color_names.find(s) orelse return null) << 8) | 0xFF;
+    const hex = s[1..];
+    for (hex) |c| if (!std.ascii.isHex(c)) return null;
+    const n = std.fmt.parseInt(u32, hex, 16) catch return null;
+    return switch (hex.len) {
+        3 => doubled((n << 4) | 0xF),
+        4 => doubled(n),
+        6 => (n << 8) | 0xFF,
+        8 => n,
+        else => null,
+    };
+}
+
+/// `0xRGBA` as `0xRRGGBBAA`.
+fn doubled(n: u32) u32 {
+    var out: u32 = 0;
+    var i: u5 = 0;
+    while (i < 4) : (i += 1) out |= ((n >> (i * 4)) & 0xF) * 0x11 << (i * 8);
+    return out;
+}
+
+/// A colour from its hue in degrees, any way round, and its saturation,
+/// value and alpha from 0 to 1.
+fn hsv(vm: *Vm, args: []Value) Error!Value {
+    var n: [4]f32 = .{ 0, 0, 0, 1 };
+    for (args, 0..) |_, i| n[i] = @floatCast(try native.float(vm, args, i));
+    const hue = @mod(n[0], 360) / 60;
+    const s = std.math.clamp(n[1], 0, 1);
+    const v = std.math.clamp(n[2], 0, 1);
+    const sector: u32 = @min(@as(u32, @intFromFloat(@floor(hue))), 5);
+    const f = hue - @as(f32, @floatFromInt(sector));
+    const p = v * (1 - s);
+    const q = v * (1 - s * f);
+    const t = v * (1 - s * (1 - f));
+    const rgb: [3]f32 = switch (sector) {
+        0 => .{ v, t, p },
+        1 => .{ q, v, p },
+        2 => .{ p, v, t },
+        3 => .{ p, q, v },
+        4 => .{ t, p, v },
+        else => .{ v, p, q },
+    };
+    return make.color(vm, .{ rgb[0], rgb[1], rgb[2], std.math.clamp(n[3], 0, 1) });
 }
 
 fn wait(vm: *Vm, args: []Value) Error!Value {
@@ -244,4 +293,8 @@ fn range(vm: *Vm, args: []Value) Error!Value {
         x += step;
     }
     return .fromObj(.list, &l.obj);
+}
+
+test {
+    _ = color_names;
 }
