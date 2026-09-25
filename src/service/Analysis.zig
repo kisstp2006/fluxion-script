@@ -167,6 +167,7 @@ pub const Hover = struct {
 pub fn hover(a: *const Analysis, arena: Allocator, offset: u32) Allocator.Error!?Hover {
     const u = a.useAt(offset) orelse return null;
     const name = a.textOf(u.span);
+    if (u.detail) |d| return .{ .span = u.span, .code = try arena.dupe(u8, d), .doc = u.doc };
     if (a.declOf(u.*)) |d| {
         var doc = d.doc;
         if (a.pool().signatureOf(d.type)) |sig| if (sig.coroutine) {
@@ -269,11 +270,13 @@ pub fn writeSignature(a: *const Analysis, w: *Writer, name: []const u8, sig: *co
         if (!first) try w.writeAll(", ");
         first = false;
         if (p.name.len > 0) try w.print("{s}: ", .{p.name});
-        try w.writeAll(a.typeName(p.type));
-        if (p.has_default) try w.writeAll(" = ...");
+        try w.writeAll(p.type_text orelse a.typeName(p.type));
+        if (p.has_default) try w.print(" = {s}", .{p.default_text orelse "..."});
     }
     try w.writeByte(')');
-    if (sig.ret != .void) try w.print(" {s}", .{a.typeName(sig.ret)});
+    if (sig.ret_text) |r| {
+        if (r.len > 0) try w.print(" {s}", .{r});
+    } else if (sig.ret != .void) try w.print(" {s}", .{a.typeName(sig.ret)});
 }
 
 // ---------------------------------------------------------------------------

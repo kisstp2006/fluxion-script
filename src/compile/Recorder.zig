@@ -63,6 +63,9 @@ pub const Use = struct {
     mutable: bool = false,
     /// What the host said of what it gives: a host member, a host global.
     doc: ?[]const u8 = null,
+    /// How what the host gives is written, where it is none of the file's:
+    /// a host's method, `fn Timer.start(seconds: float = -1.0)`.
+    detail: ?[]const u8 = null,
 };
 
 /// A declaration at the top of a module, or a member of one.
@@ -98,6 +101,9 @@ pub const Completion = union(enum) {
     scope: []const Item,
     /// After `value.`: the fields and methods of its type.
     members: Type,
+    /// After `value.` where the host gives the value: the fields and methods
+    /// of the host's type.
+    host_members: *const @import("fluxion_reflect").Type,
     /// After `Type.` or `module.`: what the type or the module declares.
     statics: Type,
     /// `.name` where a member of this enum is wanted.
@@ -318,6 +324,10 @@ pub fn scope(r: *Recorder, f: *Func) Allocator.Error!void {
 
 pub fn members(r: *Recorder, t: Type) void {
     if (r.completion == null) r.completion = .{ .members = t };
+}
+
+pub fn hostMembers(r: *Recorder, t: *const @import("fluxion_reflect").Type) void {
+    if (r.completion == null) r.completion = .{ .host_members = t };
 }
 
 pub fn statics(r: *Recorder, t: Type) void {

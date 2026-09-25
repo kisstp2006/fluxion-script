@@ -167,7 +167,7 @@ pub fn create(vm: *Vm, comptime T: type) Error!Value {
     return v;
 }
 
-fn vectorLength(t: *const reflect.Type) ?usize {
+pub fn vectorLength(t: *const reflect.Type) ?usize {
     if (t.kind != .@"struct") return null;
     const fields = t.fields();
     if (fields.len != 2 and fields.len != 3) return null;
@@ -189,7 +189,7 @@ pub fn toFlux(vm: *Vm, rv: reflect.Value, owner: Value) Error!Value {
 }
 
 /// How the host has a type of its own seen, if it does. See `Vm.HostType`.
-fn hostType(vm: *const Vm, t: *const reflect.Type) ?*const Vm.HostType {
+pub fn hostType(vm: *const Vm, t: *const reflect.Type) ?*const Vm.HostType {
     for (vm.options.host_types) |*host| {
         if (host.type.same(t)) return host;
     }

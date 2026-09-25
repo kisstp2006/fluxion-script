@@ -137,6 +137,7 @@ fn varDecl(f: *Func, v: *const ast.VarDecl) Error!void {
     const declared: ?Type = if (v.type) |t| try @import("resolve.zig").typeExpr(c, t) else null;
     const r = try f.alloc();
     var t: Type = .unknown;
+    var host: ?@import("host.zig").Host = null;
     if (v.value) |init| {
         if (declared) |d| {
             t = (try expr.typedInto(f, init, r, d, "the variable")).type;
@@ -144,6 +145,9 @@ fn varDecl(f: *Func, v: *const ast.VarDecl) Error!void {
         } else {
             const value = try expr.into(f, init, r, .unknown);
             t = try inferred(f, value.type, v.name);
+            // A variable may be given another value: what it holds is only
+            // offered, not checked.
+            if (value.host) |h| host = .{ .type = h.type, .sure = h.sure and v.is_const };
         }
     } else if (declared) |d| {
         const zero = decl.zeroOf(c, d);
@@ -160,6 +164,7 @@ fn varDecl(f: *Func, v: *const ast.VarDecl) Error!void {
     for (v.annotations) |a| _ = try c.err(a.name.span, "`@{s}` is for a struct's fields", .{a.name.text});
     f.release(r + 1);
     try f.declare(v.name.text, r, t, v.is_const, v.name.span);
+    f.locals.items[f.locals.items.len - 1].host = host;
 }
 
 fn localFunction(f: *Func, node: *const ast.Fn) Error!void {

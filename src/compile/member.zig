@@ -21,6 +21,7 @@ const expr = @import("expr.zig");
 const Operand = expr.Operand;
 const binary = @import("binary.zig");
 const names = @import("names.zig");
+const host = @import("host.zig");
 
 pub fn component(name: []const u8) ?u8 {
     if (name.len != 1) return null;
@@ -156,15 +157,16 @@ pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     const t = try expr.compile(f, fl.target, null, .unknown);
     const rec = c.recording();
     if (rec) |r| if (r.isPlaceholder(name)) {
-        r.members(t.type);
+        if (t.host) |h| r.hostMembers(h.type) else r.members(t.type);
         return .{ .reg = try binary.result(f, dst, mark), .type = .unknown, .temp = dst == null };
     };
+    if (t.host) |h| if (Compiler.dynamic(t.type)) return hostMember(f, t, h, fl.name, dst, mark);
     if (pool.structOf(t.type)) |s| {
         if (s.field(name)) |fd| {
             if (rec) |r| try r.member(c, fl.name.span, s.self_type, .{ .field = fd });
             const out = try binary.result(f, dst, mark);
             try f.abc(.getfield, out, t.reg, @intCast(fd.slot));
-            return .{ .reg = out, .type = fd.type, .temp = dst == null };
+            return .{ .reg = out, .type = fd.type, .temp = dst == null, .host = if (fd.host_type) |ht| .{ .type = ht } else null };
         }
         if (s.method(name)) |m| {
             if (rec) |r| try r.member(c, fl.name.span, s.self_type, .{ .method = m });
@@ -220,6 +222,24 @@ pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     };
     try getProp(f, out, t.reg, name);
     return .{ .reg = out, .type = known orelse .any, .temp = dst == null };
+}
+
+/// A member of a value the host gives, read by name as any value's is: of
+/// the type its host type says, where that lists it - a field - and `any`
+/// otherwise, which the host may still have.
+fn hostMember(f: *Func, t: Operand, h: host.Host, name: ast.Name, dst: ?u8, mark: u8) Error!Operand {
+    const c = f.comp;
+    const out = try binary.result(f, dst, mark);
+    try getProp(f, out, t.reg, name.text);
+    if (host.field(h.type, name.text)) |fd| {
+        const seen = host.seen(c.vm, fd.type);
+        if (c.recording()) |r| try r.use(.{ .span = name.span, .kind = .field, .type = seen.type, .doc = host.docOf(fd), .detail = try host.fieldDetail(c.vm, r.arena(), fd, h.type), .mutable = true });
+        return .{ .reg = out, .type = seen.type, .temp = dst == null, .host = if (seen.host) |ht| .{ .type = ht, .sure = h.sure } else null };
+    }
+    if (host.method(h.type, name.text)) |m| if (c.recording()) |r| {
+        try r.use(.{ .span = name.span, .kind = .method, .type = .any, .doc = host.docOf(m), .detail = try host.methodDetail(c.vm, r.arena(), m, h.type) });
+    };
+    return .{ .reg = out, .type = .any, .temp = dst == null };
 }
 
 fn builtinHasMethod(c: *Compiler, t: Type, name: []const u8) bool {

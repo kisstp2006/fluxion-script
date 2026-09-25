@@ -69,12 +69,12 @@ pub fn read(f: *Func, name: []const u8, span: diag.Span, dst: ?u8) Error!Operand
     if (c.recording()) |rec| try rec.place(f, name, span, place);
     switch (place) {
         .local => |r| {
-            const t = localByReg(f, r).?.type;
+            const l = localByReg(f, r).?;
             if (dst) |d| {
                 if (d != r) try f.abc(.move, d, r, 0);
-                return .{ .reg = d, .type = t, .temp = false };
+                return .{ .reg = d, .type = l.type, .temp = false, .host = l.host };
             }
-            return .{ .reg = r, .type = t, .temp = false };
+            return .{ .reg = r, .type = l.type, .temp = false, .host = l.host };
         },
         .upval => |u| {
             const r = try expr.target(f, dst);
@@ -92,7 +92,11 @@ pub fn read(f: *Func, name: []const u8, span: diag.Span, dst: ?u8) Error!Operand
             try f.abx(.getglobal, r, @intCast(g.index));
             return .{ .reg = r, .type = g.type, .temp = dst == null };
         },
-        .builtin => |v| return expr.constant(f, dst, v, .any),
+        .builtin => |v| {
+            var op = try expr.constant(f, dst, v, .any);
+            op.host = @import("host.zig").ofGlobal(c.vm, name, v);
+            return op;
+        },
         .none => {
             try notDeclared(f, name, span);
             return .{ .reg = try expr.target(f, dst), .type = .unknown, .temp = dst == null };

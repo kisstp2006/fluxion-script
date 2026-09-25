@@ -25,6 +25,8 @@ const Kind = service.Kind;
 const Analysis = @import("Analysis.zig");
 const cursor = @import("cursor.zig");
 const docs = @import("docs.zig");
+const host = @import("../compile/host.zig");
+const reflect = @import("fluxion_reflect");
 
 pub const Item = struct {
     label: []const u8,
@@ -82,6 +84,7 @@ pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []co
             try add.keywords();
         },
         .members => |t| try add.members(t),
+        .host_members => |t| try add.hostMembers(t),
         .statics => |t| try add.statics(t),
         .enum_members => |t| try add.enumMembers(t),
         .fields => |f| try add.fields(f.of, f.given),
@@ -187,6 +190,17 @@ const Adder = struct {
         }
     }
 
+    /// What a value the host gives has, after its `.`: the fields and
+    /// methods of its host's type, but those kept out of a person's view.
+    fn hostMembers(ad: *Adder, t: *const reflect.Type) Allocator.Error!void {
+        const vm = ad.a.vm;
+        if (t.kind == .@"struct" or t.kind == .@"union") for (t.fields()) |*fd| {
+            if (host.hidden(fd)) continue;
+            try ad.push(fd.name.slice(), .field, try host.fieldDetail(vm, ad.arena, fd, t), host.docOf(fd), 0);
+        };
+        for (t.methods.slice()) |*m| try ad.push(m.name.slice(), .method, try host.methodDetail(vm, ad.arena, m, t), host.docOf(m), 0);
+    }
+
     /// What a struct, an enum or a module declares, after its name and `.`.
     fn statics(ad: *Adder, t: Type) Allocator.Error!void {
         const p = ad.a.pool();
@@ -284,6 +298,10 @@ pub fn signatureHelp(gpa: Allocator, arena: Allocator, name: []const u8, source:
     const use = a.useStarting(call.name.start);
     (blk: {
         const w = &label.writer;
+        if (use) |u| if (u.kind == .method) if (u.detail) |d| {
+            doc = u.doc;
+            break :blk writeWithoutSelf(w, d, false);
+        };
         if (use) |u| if (a.declOf(u.*)) |d| {
             doc = d.doc;
             break :blk writeWithoutSelf(w, d.detail, call.skip_self);

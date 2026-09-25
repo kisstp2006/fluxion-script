@@ -38,6 +38,10 @@ pub const Param = struct {
     name: []const u8,
     type: Type,
     has_default: bool,
+    /// For a host's method: what it is left out as, `1.0`, and what it takes
+    /// written as the host's type, where the compiler's says less.
+    default_text: ?[]const u8 = null,
+    type_text: ?[]const u8 = null,
 };
 
 pub const Signature = struct {
@@ -45,6 +49,9 @@ pub const Signature = struct {
     ret: Type,
     has_self: bool = false,
     coroutine: bool = false,
+    /// For a host's method: what it gives back, written as the host's type;
+    /// empty for nothing.
+    ret_text: ?[]const u8 = null,
 
     pub fn required(s: *const Signature) usize {
         var n: usize = 0;
@@ -68,6 +75,8 @@ pub const Field = struct {
     /// Given by the host to every struct, with what the host said of it.
     host: bool = false,
     doc: ?[]const u8 = null,
+    /// The host's type of what a host's member holds, when the host said.
+    host_type: ?*const @import("fluxion_reflect").Type = null,
 };
 
 pub const Method = struct {

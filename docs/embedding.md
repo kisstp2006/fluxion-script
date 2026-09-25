@@ -277,6 +277,41 @@ beside it - and says whether it took the value.
 And a reflected method's parameter of type `flux.Value` takes what the
 script passed as it is - a function to call later, a signal, an instance.
 
+### What the compiler knows of the host's values
+
+A value the host gives is `any` to the compiler, but where the host says
+of which of its types it is, the compiler knows that type's fields and
+methods: it checks each call of a method as it would a script function's -
+how many arguments, the last ones left out where the method gives them
+defaults, and a flag, a whole number, a number or a string where the
+method takes nothing else - and an editor offers them after the `.`, shows
+their signatures as the call is typed, and their docs on a hover.
+
+```zig
+// Known by the handle's type: `app.moveAndSlide(1, 2)` is refused as it is compiled.
+try vm.defineGlobal("app", try vm.handle(&app), "The running game.");
+// Where the scripts are only compiled - an editor's analysis - with nothing behind it.
+try vm.declareGlobal("app", fluxion_reflect.typeOf(App), "The running game.");
+// `self.entity` holds an EntityRef.
+try vm.declareHostMemberOf("entity", fluxion_reflect.typeOf(EntityRef), "The entity this script is on.");
+```
+
+What a field or a method's result is, is known the same way: a number, a
+string, a vector, or a value of another of the host's types, whose members
+are known in turn - `app.find("Door").get("Timer").start()` all checked.
+`HostType.script` says what a converted type is to a script: an entity is
+the handle the scripts know entities by. And `Vm.Options.host_result` says
+what a method that gives back a `flux.Value` gives, from the strings it is
+called with: `entity.get("Timer")` is the Timer.
+
+A call is checked only where the receiver is certainly of the type: on a
+global, a host member, a `const` given one of those, or straight on what a
+call gives. A `var` may be given another value, so its calls are offered
+and not checked. Nothing else about the value changes: it is still `any`
+to every other rule, a member its type does not list is still the host's to
+have, and an argument the host converts - a path for a texture - is not
+the compiler's to refuse.
+
 ## Time, tasks and panics
 
 A script's `await wait(1.0)` waits on the host's clock: call

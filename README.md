@@ -182,7 +182,7 @@ The compiler runs over the file as it is typed, with a listener that
 records what every name turned out to be, so an editor knows what the
 compiler knows:
 
-- **completions** - what is in scope, innermost first; after `x.` the fields and methods of `x`'s type; after `Enemy.` or `math.` what they declare; the enum's members after a `.` where one goes; the fields not yet given in `Enemy{ . }`;
+- **completions** - what is in scope, innermost first; after `x.` the fields and methods of `x`'s type - and of the host's values too, where the host says their type: `app.`, `self.entity.`; after `Enemy.` or `math.` what they declare; the enum's members after a `.` where one goes; the fields not yet given in `Enemy{ . }`;
 - **hovers** with the declaration, its types resolved, and its `///` doc; **signature help** with the argument you are on;
 - **go to definition** (F12, ctrl+click), **references**, an **outline**, **colours by meaning** - a field, a parameter, a signal - and **errors as you type**.
 

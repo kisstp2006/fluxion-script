@@ -29,7 +29,11 @@ pub const Operand = struct {
     type: Type,
     /// The register was taken for this expression, and may be changed.
     temp: bool,
+    /// A value the host gives, known by the host's type: see `host.zig`.
+    host: ?host_mod.Host = null,
 };
+
+const host_mod = @import("host.zig");
 
 pub fn target(f: *Func, dst: ?u8) Error!u8 {
     return dst orelse f.alloc();

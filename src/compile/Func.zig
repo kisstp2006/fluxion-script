@@ -31,6 +31,9 @@ pub const Local = struct {
     captured: bool = false,
     used: bool = false,
     span: diag.Span,
+    /// What it was given, when that is a value the host gives: see
+    /// `host.zig`.
+    host: ?@import("host.zig").Host = null,
 };
 
 pub const Upval = struct {

@@ -75,6 +75,7 @@ test {
     _ = @import("bind.zig");
     _ = os;
     _ = @import("reflect_test.zig");
+    _ = @import("host_compile_test.zig");
     _ = service;
     _ = @import("service/complete.zig");
     _ = lsp;

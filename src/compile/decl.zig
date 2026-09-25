@@ -204,7 +204,7 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
     }
     const inherited = info.fields.items.len;
     if (info.parent == null) for (vm.host_members.items) |m| {
-        try info.fields.append(c.pool.allocator(), .{ .name = m.name, .type = .any, .slot = @intCast(info.fields.items.len), .is_const = true, .is_signal = false, .span = .empty, .file = .none, .host = true, .doc = m.doc });
+        try info.fields.append(c.pool.allocator(), .{ .name = m.name, .type = .any, .slot = @intCast(info.fields.items.len), .is_const = true, .is_signal = false, .span = .empty, .file = .none, .host = true, .doc = m.doc, .host_type = m.type });
     };
     for (node.fields) |f| {
         if (info.field(f.name.text)) |prior| {

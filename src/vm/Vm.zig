@@ -64,6 +64,19 @@ pub const Options = struct {
     /// whose words the host keeps beside it. True when the host took it,
     /// false for the usual "has no field" panic.
     host_set_member: ?*const fn (vm: *Vm, handle: Value, name: []const u8, value: Value) Error!bool = null,
+    /// What a call of one of the host's methods that gives back a
+    /// `flux.Value` gives, for the compiler to know its members by: an
+    /// engine's `entity.get("Timer")` is the Timer. See `HostResult`.
+    host_result: ?HostResult = null,
+};
+
+/// Asked by the compiler for the host's type of what `receiver.method(...)`
+/// gives back, given the arguments that are strings written out - null for
+/// the others. Null when the host cannot say; the result is then `any`, with
+/// nothing known of it.
+pub const HostResult = struct {
+    context: ?*anyopaque = null,
+    run: *const fn (context: ?*anyopaque, receiver: *const reflect.Type, method: []const u8, strings: []const ?[]const u8) ?*const reflect.Type,
 };
 
 /// One of the host's types as a script sees it. Asked first whenever a
@@ -72,6 +85,11 @@ pub const Options = struct {
 /// `valueOf`. The functions read and write the value itself, of `type`.
 pub const HostType = struct {
     type: *const reflect.Type,
+    /// What a value of `type` is to a script, when it is a handle of another
+    /// of the host's types - an entity is the handle the scripts know
+    /// entities by: what the compiler knows its members by. Null when it is
+    /// none of the host's types, such as a path.
+    script: ?*const reflect.Type = null,
     /// The value as the script's. `vm.host` is the host's, to find its
     /// own things by.
     to_script: *const fn (vm: *Vm, value: reflect.Value) Error!Value,
@@ -117,6 +135,8 @@ prelude: std.AutoHashMapUnmanaged(*object.String, Value) = .empty,
 host_members: std.ArrayList(HostMember) = .empty,
 /// What the host said of the globals it defined, for an editor to show.
 host_docs: std.StringHashMapUnmanaged([]u8) = .empty,
+/// The host's types of the globals `declareGlobal` declared.
+global_types: std.StringHashMapUnmanaged(*const reflect.Type) = .empty,
 native_modules: std.StringHashMapUnmanaged(*object.Module) = .empty,
 methods: std.EnumArray(BuiltinType, std.AutoHashMapUnmanaged(*object.String, Value)),
 main: Fiber,
@@ -211,10 +231,12 @@ pub const newHandle = api.newHandle;
 pub const adoptHandle = api.adoptHandle;
 pub const valueOf = api.valueOf;
 pub const reflectOf = api.reflectOf;
-pub const HostMember = struct { name: []u8, doc: ?[]u8 };
+pub const HostMember = struct { name: []u8, doc: ?[]u8, type: ?*const reflect.Type = null };
 pub const Reload = api.Reload;
 pub const ReloadError = api.ReloadError;
 pub const declareHostMember = api.declareHostMember;
+pub const declareHostMemberOf = api.declareHostMemberOf;
+pub const declareGlobal = api.declareGlobal;
 pub const defineGlobal = api.defineGlobal;
 pub const handleOf = api.handleOf;
 pub const liveHandle = api.liveHandle;
@@ -297,6 +319,8 @@ pub fn destroy(vm: *Vm) void {
         if (m.doc) |d| gpa.free(d);
     }
     vm.host_members.deinit(gpa);
+    // Its names are the docs' own, freed with them.
+    vm.global_types.deinit(gpa);
     var docs = vm.host_docs.iterator();
     while (docs.next()) |e| {
         gpa.free(e.key_ptr.*);

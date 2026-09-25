@@ -19,6 +19,7 @@ const native_lib = @import("lib/native.zig");
 const signal_lib = @import("lib/signal.zig");
 const reload_mod = @import("reload.zig");
 const types_mod = @import("vm/types.zig");
+const reflect = @import("fluxion_reflect");
 
 pub const CompileError = error{ CompileFailed, OutOfMemory };
 pub const LoadError = error{ CompileFailed, Panic, OutOfMemory };
@@ -148,12 +149,30 @@ pub const Member = struct {
 /// on every VM that compiles them - an editor's analysis too, so completions
 /// know it.
 pub fn declareHostMember(vm: *Vm, name: []const u8, doc: ?[]const u8) Allocator.Error!void {
+    return declareHostMemberOf(vm, name, null, doc);
+}
+
+/// `declareHostMember`, saying what the member holds: a handle of the
+/// host's type `host_type`. The compiler knows its fields and methods then,
+/// checks the calls of its methods, and an editor offers them.
+pub fn declareHostMemberOf(vm: *Vm, name: []const u8, host_type: ?*const reflect.Type, doc: ?[]const u8) Allocator.Error!void {
     for (vm.host_members.items) |m| if (std.mem.eql(u8, m.name, name)) return;
     const owned = try vm.gpa.dupe(u8, name);
     errdefer vm.gpa.free(owned);
     const text = if (doc) |d| try vm.gpa.dupe(u8, d) else null;
     errdefer if (text) |t| vm.gpa.free(t);
-    try vm.host_members.append(vm.gpa, .{ .name = owned, .doc = text });
+    try vm.host_members.append(vm.gpa, .{ .name = owned, .doc = text, .type = host_type });
+}
+
+/// A global the host defines where the scripts run, declared where they are
+/// only compiled - an editor's analysis: `name`, a value of the host's type
+/// `host_type`, with nothing behind it. What `defineGlobal` gives a handle
+/// is known by the handle's type without this.
+pub fn declareGlobal(vm: *Vm, name: []const u8, host_type: *const reflect.Type, doc: ?[]const u8) Allocator.Error!void {
+    try defineGlobal(vm, name, .null, doc);
+    const gop = try vm.global_types.getOrPut(vm.gpa, name);
+    if (!gop.found_existing) gop.key_ptr.* = vm.host_docs.getKey(name).?;
+    gop.value_ptr.* = host_type;
 }
 
 /// A value every module sees as `name` without importing anything: an
