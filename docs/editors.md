@@ -68,16 +68,19 @@ or the one `--font file.ttf` names. `--demo complete` (and `signature`,
 ## VS Code
 
 `editors/vscode` is the extension: a TextMate grammar for colours at once,
-and `flux lsp` for the rest.
+and a language server for the rest - `flux lsp`, or for a script of a
+Fluxion project (a `project.fluxion` in a folder above it) the Fluxion
+editor's `--lsp`, which knows what the engine gives its scripts.
 
 ```bash
 cd editors/vscode
 npm install
-npx @vscode/vsce package
+npm run package
 code --install-extension flux-language-0.1.0.vsix
 ```
 
-It runs `flux` from the PATH; the `flux.path` setting points it elsewhere.
+It runs each from the PATH; the `flux.path` and `flux.editorPath` settings
+point it elsewhere.
 
 ## Neovim (0.11 and later)
 
@@ -177,6 +180,18 @@ const sig = try service.signatureHelp(gpa, arena, "player.flux", text, cursor, o
 Offsets are bytes into the text. `options.setup` gives each VM the service
 makes what the host gives its scripts - its natives and modules - so that
 `@import("game")` completes; `options.loader` says where imports come from.
+
+A program serves its own scripts to the editors above as `flux lsp` serves
+any: a `flux.lsp.Server` with its options as `given`, run on its standard
+input and output. The text of a file open in the editor is imported as it
+is there; the rest comes through the program's loader.
+
+```zig
+var server: flux.lsp.Server = .init(gpa, io, stdout);
+defer server.deinit();
+server.given = .{ .setup = .{ .run = giveGameModule }, .loader = game_files };
+return server.run(stdin);
+```
 
 ## The editor, in a program
 
