@@ -71,6 +71,7 @@ pub fn compatible(c: *Compiler, from: Type, to: Type) bool {
     if (from == to or to == .any or from == .unknown or to == .unknown or from == .never) return true;
     const pool = c.pool;
     if (pool.structOf(from)) |a| if (pool.structOf(to)) |b| return a.extends(b);
+    if (pool.hostOf(from)) |a| if (pool.hostOf(to)) |b| return a.same(b) or isArm(a, b);
     if (pool.listOf(from)) |a| if (pool.listOf(to)) |b| return b == .any or a == .unknown or b == .unknown;
     if (pool.mapOf(from)) |a| if (pool.mapOf(to)) |b| return (b.key == .any and b.value == .any) or a.key == .unknown or a.value == .unknown or b.key == .unknown or b.value == .unknown;
     if (pool.signatureOf(to)) |want| {
@@ -83,6 +84,14 @@ pub fn compatible(c: *Compiler, from: Type, to: Type) bool {
         return have.ret == .any or compatible(c, have.ret, want.ret);
     }
     if (from == .null) return pool.nullable(to);
+    return false;
+}
+
+/// Whether `t` is the payload of an arm of the host's union `u`: a value of
+/// it is a `u`.
+fn isArm(t: *const @import("fluxion_reflect").Type, u: *const @import("fluxion_reflect").Type) bool {
+    if (u.kind != .@"union") return false;
+    for (u.fields()) |arm| if (arm.type.same(t)) return true;
     return false;
 }
 
@@ -336,7 +345,9 @@ fn logical(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     const l = try expr.compile(f, b.lhs, out, .bool);
     try boolOperand(f, l.type, b.lhs.span, b.op);
     const skip = try f.jumpForward(if (b.op == .@"and") .jfalse else .jtrue, out, 0);
+    const narrowed = try @import("control.zig").narrow(f, b.lhs, b.op == .@"and");
     const r = try expr.compile(f, b.rhs, out, .bool);
+    f.unnarrow(narrowed);
     try boolOperand(f, r.type, b.rhs.span, b.op);
     try f.patchHere(skip);
     f.release(mark);

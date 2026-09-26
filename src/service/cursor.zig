@@ -27,8 +27,13 @@ pub const Kind = enum {
     /// A `.name` with nothing before the dot: an enum's member, or a field
     /// in a struct literal.
     dot,
-    /// `@name`.
+    /// `@name`, or a `@` alone.
     builtin,
+    /// A method's name being written in a struct's body, after `fn`.
+    method_name,
+    /// A word where a struct's member starts: `fn`, `var`, a method the
+    /// host calls.
+    struct_member,
 };
 
 pub const Context = struct {
@@ -38,6 +43,9 @@ pub const Context = struct {
     end: u32,
     /// A `.name` inside `Type{ ... }`.
     struct_field: bool = false,
+    /// For `method_name`, where its `fn` starts: what a whole method written
+    /// in its place replaces from.
+    decl_start: u32 = 0,
 };
 
 fn tokenize(gpa: Allocator, source: []const u8, start: usize, end: usize) Allocator.Error![]Token {
@@ -134,6 +142,8 @@ fn within(source: []const u8, tokens: []const Token, cursor: u32) Context {
     while (k + 1 < tokens.len and tokens[k].end < cursor) k += 1;
     const t = tokens[k];
     const inside = t.start < cursor and cursor <= t.end;
+    // A `@` with nothing after it yet.
+    if (t.kind == .invalid and t.end == cursor and t.end == t.start + 1 and source[t.start] == '@') return .{ .kind = .builtin, .start = cursor, .end = cursor };
     if (inside) switch (t.kind) {
         .string, .char, .multiline_string, .fstring => if (cursor < t.end or t.kind == .multiline_string or !closed(source, t)) return none,
         .int, .float => return none,
@@ -173,7 +183,15 @@ fn within(source: []const u8, tokens: []const Token, cursor: u32) Context {
                 ctx.struct_field = structField(tokens, b);
             }
         },
-        .kw_var, .kw_const, .kw_fn, .kw_struct, .kw_enum, .kw_signal, .kw_test => return none,
+        .kw_fn => {
+            if (!inStructBody(tokens, b)) return none;
+            ctx.kind = .method_name;
+            ctx.decl_start = tokens[b].start;
+        },
+        .kw_var, .kw_const, .kw_struct, .kw_enum, .kw_signal, .kw_test => return none,
+        .l_brace, .r_brace, .semicolon => if (inStructBody(tokens, b + 1)) {
+            ctx.kind = .struct_member;
+        },
         .pipe => if (b == 0 or !endsValue(tokens[b - 1].kind) or tokens[b - 1].kind == .r_paren) return none,
         .comma, .l_paren => {
             if (kind_before == .comma and b >= 2 and tokens[b - 1].kind == .identifier and tokens[b - 2].kind == .pipe) return none;
@@ -200,6 +218,50 @@ fn opener(tokens: []const Token, end: usize) ?usize {
         }
     }
     return null;
+}
+
+/// Whether `tokens[index]` is directly in a struct's body, where its members
+/// are declared.
+fn inStructBody(tokens: []const Token, index: usize) bool {
+    const o = opener(tokens, index) orelse return false;
+    return tokens[o].kind == .l_brace and structHeader(tokens, o);
+}
+
+/// Whether the `{` at `o` opens a struct: `struct Name {`, `struct Name
+/// extends Base {`.
+fn structHeader(tokens: []const Token, o: usize) bool {
+    if (o >= 2 and tokens[o - 1].kind == .identifier and tokens[o - 2].kind == .kw_struct) return true;
+    return o >= 4 and tokens[o - 1].kind == .identifier and tokens[o - 2].kind == .kw_extends and
+        tokens[o - 3].kind == .identifier and tokens[o - 4].kind == .kw_struct;
+}
+
+/// The names of the methods of the struct whose body `offset` is in,
+/// made in `arena`.
+pub fn structMethods(gpa: Allocator, arena: Allocator, source: []const u8, offset: u32) Allocator.Error![]const []const u8 {
+    const tokens = try tokenize(gpa, source, 0, source.len);
+    defer gpa.free(tokens);
+    var k: usize = 0;
+    while (k + 1 < tokens.len and tokens[k].end < offset) k += 1;
+    var names: std.ArrayList([]const u8) = .empty;
+    const o = opener(tokens, k) orelse return names.items;
+    if (tokens[o].kind != .l_brace or !structHeader(tokens, o)) return names.items;
+    var depth: usize = 0;
+    var i = o + 1;
+    while (i < tokens.len) : (i += 1) {
+        switch (tokens[i].kind) {
+            .l_paren, .l_bracket, .l_brace => depth += 1,
+            .r_paren, .r_bracket, .r_brace => {
+                if (depth == 0) break;
+                depth -= 1;
+            },
+            .kw_fn => if (depth == 0 and i + 1 < tokens.len and tokens[i + 1].kind == .identifier) {
+                try names.append(arena, source[tokens[i + 1].start..tokens[i + 1].end]);
+            },
+            .eof => break,
+            else => {},
+        }
+    }
+    return names.items;
 }
 
 /// Whether the `.` at `dot` starts a field of a struct literal:

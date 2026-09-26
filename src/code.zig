@@ -146,7 +146,9 @@ fn complete(context: ?*anyopaque, gpa: Allocator, arena: Allocator, path: []cons
             .detail = item.detail,
             .doc = item.doc,
             .rank = item.rank,
-            .call = if (!callable) .none else if (std.mem.indexOf(u8, item.detail, "()") != null) .empty else .arguments,
+            .call = if (!callable or item.insert != null) .none else if (std.mem.indexOf(u8, item.detail, "()") != null) .empty else .arguments,
+            .insert = item.insert,
+            .caret = item.caret,
             .swatch = if (item.color) |rgb| .{
                 @as(f32, @floatFromInt(rgb >> 16)) / 255,
                 @as(f32, @floatFromInt((rgb >> 8) & 0xFF)) / 255,

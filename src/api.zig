@@ -175,6 +175,75 @@ pub fn declareGlobal(vm: *Vm, name: []const u8, host_type: *const reflect.Type, 
     gop.value_ptr.* = host_type;
 }
 
+/// One of the host's types, made a name scripts write: in a type, `fn
+/// input(self, event: InputEvent)`, where a value goes, `entity.get(Sprite)`,
+/// and after `is`, `if (event is KeyEvent)`. Its name is the type's own,
+/// without the file it is in; a script's own declaration of the name hides
+/// it. An enum's members are named through it: `Key.space`. The type is the
+/// host's and lives as long as the VM.
+pub fn declareType(vm: *Vm, t: *const reflect.Type) Allocator.Error!void {
+    try vm.named_types.put(vm.gpa, @import("reflect.zig").nameOf(t), t);
+}
+
+/// A method the host calls on scripts' instances. See `Vm.Hook`.
+pub fn declareHook(vm: *Vm, hook: Vm.Hook) Allocator.Error!void {
+    for (vm.hooks.items) |*h| if (std.mem.eql(u8, h.name, hook.name)) {
+        h.* = hook;
+        return;
+    };
+    try vm.hooks.append(vm.gpa, hook);
+}
+
+pub fn hookNamed(vm: *const Vm, name: []const u8) ?*const Vm.Hook {
+    for (vm.hooks.items) |*h| if (std.mem.eql(u8, h.name, name)) return h;
+    return null;
+}
+
+/// An annotation of a field's the host reads. See `Vm.Annotation`.
+pub fn declareAnnotation(vm: *Vm, a: Vm.Annotation) Allocator.Error!void {
+    for (vm.annotations.items) |*have| if (std.mem.eql(u8, have.name, a.name)) {
+        have.* = a;
+        return;
+    };
+    try vm.annotations.append(vm.gpa, a);
+}
+
+/// A member of the values of one of the host's types its type does not
+/// list. See `Vm.DeclaredMember`.
+pub fn declareMember(vm: *Vm, m: Vm.DeclaredMember) Allocator.Error!void {
+    for (vm.members.items) |*have| if (have.of.same(m.of) and std.mem.eql(u8, have.name, m.name)) {
+        have.* = m;
+        return;
+    };
+    try vm.members.append(vm.gpa, m);
+}
+
+/// Says the values of the host's type `t` have members only the host
+/// knows, found as the script runs - a material's numbers, named by its
+/// shader: a name the compiler does not know on one is `any`, not a
+/// mistake.
+pub fn declareOpen(vm: *Vm, t: *const reflect.Type) Allocator.Error!void {
+    for (vm.open_types.items) |o| if (o.same(t)) return;
+    try vm.open_types.append(vm.gpa, t);
+}
+
+/// Gives the values of the host's type `of` the methods of `receiver` -
+/// a handle on a value of the host's type `by` - whose first argument a
+/// script gives is one of `of`: `app.childCount(e)` as `e.childCount()`, on
+/// `receiver`, given `e`. A method's `Alias` names it on `of`'s values; a
+/// method `of` has of the name comes first. Where the scripts are only
+/// compiled, `receiver` is null and `by` says the type.
+pub fn extend(vm: *Vm, of: *const reflect.Type, by: *const reflect.Type, receiver: Value) Allocator.Error!void {
+    for (vm.extensions.items) |e| if (e.of.same(of) and e.by.same(by)) {
+        e.receiver = receiver;
+        return;
+    };
+    const e = try vm.gpa.create(Vm.Extension);
+    errdefer vm.gpa.destroy(e);
+    e.* = .{ .of = of, .by = by, .receiver = receiver };
+    try vm.extensions.append(vm.gpa, e);
+}
+
 /// A value every module sees as `name` without importing anything: an
 /// engine's `app`. It is compiled into the scripts that use it, so define it
 /// before compiling them; `doc` is what an editor shows for it.
@@ -320,7 +389,7 @@ fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
             .class => .{ .kind = .instance },
             .enum_type => |e| .{ .kind = .enum_member, .members = e.members, .enum_type = e },
             .function => .{ .kind = .function },
-            .error_union => .{ .kind = .other },
+            .error_union, .host => .{ .kind = .other },
         },
         else => .{ .kind = .other },
     };

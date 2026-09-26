@@ -29,11 +29,7 @@ pub const Operand = struct {
     type: Type,
     /// The register was taken for this expression, and may be changed.
     temp: bool,
-    /// A value the host gives, known by the host's type: see `host.zig`.
-    host: ?host_mod.Host = null,
 };
-
-const host_mod = @import("host.zig");
 
 pub fn target(f: *Func, dst: ?u8) Error!u8 {
     return dst orelse f.alloc();
@@ -223,8 +219,10 @@ fn enumLiteral(f: *Func, n: ast.Name, dst: ?u8, expected: Type, span: diag.Span)
     const rec = c.recording();
     if (rec) |r| if (r.isPlaceholder(n.text)) {
         if (c.pool.enumOf(want) != null) r.enumMembers(want);
+        if (c.pool.hostOf(want)) |u| if (u.kind == .@"union" and u.info.@"union".tag != null) r.enumMembers(try @import("host.zig").tagOf(c.vm, u));
         return .{ .reg = try target(f, dst), .type = .unknown, .temp = dst == null };
     };
+    if (c.pool.hostOf(want)) |u| if (u.kind == .@"union") return armLiteral(f, n, dst, want, u);
     const e = c.pool.enumOf(want) orelse {
         _ = try (try c.err(span, "which enum is `.{s}` a member of?", .{n.text}))
             .help("name it here, as in `State.{s}`, or give the variable a type", .{n.text});
@@ -237,6 +235,25 @@ fn enumLiteral(f: *Func, n: ast.Name, dst: ?u8, expected: Type, span: diag.Span)
         return .{ .reg = try target(f, dst), .type = .unknown, .temp = dst == null };
     };
     return constant(f, dst, .enumValue(&e.type_obj.obj, i), e.self_type);
+}
+
+/// `.borderless` where one of the host's unions is wanted: the arm of the
+/// name, which must hold nothing.
+fn armLiteral(f: *Func, n: ast.Name, dst: ?u8, want: Type, u: *const @import("fluxion_reflect").Type) Error!Operand {
+    const c = f.comp;
+    const name = @import("host.zig").nameOf(u);
+    const i = u.fieldIndex(n.text) orelse {
+        _ = try c.err(n.span, "`{s}` has no arm `{s}`", .{ name, n.text });
+        return .{ .reg = try target(f, dst), .type = .unknown, .temp = dst == null };
+    };
+    const arm = u.fields()[i];
+    if (arm.type.kind != .void) {
+        _ = try c.err(n.span, "`{s}.{s}` holds a {s}, which a name does not give", .{ name, n.text, @import("host.zig").nameOf(arm.type) });
+        return .{ .reg = try target(f, dst), .type = .unknown, .temp = dst == null };
+    }
+    const tag = @import("../reflect.zig").tagType(c.vm, u) catch return error.OutOfMemory;
+    const at = tag.index(try c.vm.intern(n.text)).?;
+    return constant(f, dst, .enumValue(&tag.obj, at), want);
 }
 
 fn errorLiteral(f: *Func, n: ast.Name, message: ?*ast.Expr, dst: ?u8) Error!Operand {

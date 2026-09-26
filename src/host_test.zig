@@ -8,6 +8,7 @@ const Value = @import("vm/value.zig").Value;
 const Tag = @import("vm/value.zig").Tag;
 const object = @import("vm/object.zig");
 const api = @import("api.zig");
+const reflect = @import("fluxion_reflect");
 
 const game =
     \\struct Actor {
@@ -590,6 +591,7 @@ test "a member the host keeps besides a handle's fields is written through the h
     defer vm.destroy();
     var clock: Clock = .{};
     try vm.defineGlobal("clock", try vm.handle(&clock), null);
+    try vm.declareMember(.{ .of = reflect.typeOf(Clock), .name = "label", .writable = true });
     Clock.label = 0;
     const m = try vm.load("label.flux",
         \\fn name() int {
@@ -598,16 +600,15 @@ test "a member the host keeps besides a handle's fields is written through the h
         \\    return clock.label + clock.ticks;
         \\}
         \\fn wrong() { clock.label = "twelve"; }
-        \\fn missing() { clock.nothing = 1; }
     );
     try testing.expectEqual(@as(i64, 15), (try vm.callName(m, "name", &.{})).asInt());
     try testing.expectEqual(@as(i64, 12), Clock.label);
     try testing.expectError(error.Panic, vm.callName(m, "wrong", &.{}));
     try testing.expectEqualStrings("a clock's label is a number", vm.panic.?.message);
     vm.clearPanic();
-    try testing.expectError(error.Panic, vm.callName(m, "missing", &.{}));
-    try testing.expectEqualStrings("host_test.Clock has no field `nothing`", vm.panic.?.message);
-    vm.clearPanic();
+    // A name neither the type nor the host has is a mistake as it is
+    // compiled.
+    try testing.expectError(error.CompileFailed, vm.load("missing.flux", "fn missing() { clock.nothing = 1; }"));
 }
 
 test "a member the host gives a handle besides its fields: a signal a script awaits" {
@@ -618,21 +619,19 @@ test "a member the host gives a handle besides its fields: a signal a script awa
     Clock.timeout = try vm.newSignal("timeout", 0);
     try vm.hold(Clock.timeout);
     defer vm.release(Clock.timeout);
+    try vm.declareMember(.{ .of = reflect.typeOf(Clock), .name = "timeout", .type = .signal });
     const m = try vm.load("wait.flux",
         \\var rang = false;
         \\fn listen() {
         \\    await clock.timeout;
         \\    rang = true;
         \\}
-        \\fn missing() any { return clock.nothing; }
     );
     _ = try vm.callName(m, "listen", &.{});
     try testing.expect(!vm.get(m, "rang").?.asBool());
     try vm.emitSignalValue(Clock.timeout, &.{});
     try testing.expect(vm.get(m, "rang").?.asBool());
-    try testing.expectError(error.Panic, vm.callName(m, "missing", &.{}));
-    try testing.expectEqualStrings("host_test.Clock has no field `nothing`", vm.panic.?.message);
-    vm.clearPanic();
+    try testing.expectError(error.CompileFailed, vm.load("missing.flux", "fn missing() any { return clock.nothing; }"));
 }
 
 const Later = struct {

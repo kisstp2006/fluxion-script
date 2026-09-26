@@ -5,6 +5,9 @@
 //! `reflect_methods`, converting numbers, bools, strings, enums and
 //! vectors on the way. A struct of two or three `f32`s named x, y (and z)
 //! comes over as a `vec2` or `vec3` - an engine's `Vec2` is the script's.
+//! An enum is a Flux enum of the same name and members; a tagged union is
+//! its live arm - the payload's handle, or the member naming an arm that
+//! holds nothing - and a payload has the union's methods besides its own.
 //!
 //! A handle points at the host's memory and does not own it: the host keeps
 //! the value alive as long as scripts can reach it, as with Lua's light
@@ -54,6 +57,94 @@ pub fn liveHandle(vm: *Vm, resolver: *const object.Resolver, key: u64, t: *const
 
 fn isLive(h: *const object.Handle) bool {
     return h.live != null or h.step != .none;
+}
+
+/// A type's own name, without the file it is in: what a script calls it.
+pub fn nameOf(t: *const reflect.Type) []const u8 {
+    const full = t.name.slice();
+    const dot = std.mem.lastIndexOfScalar(u8, full, '.') orelse return full;
+    return full[dot + 1 ..];
+}
+
+/// The type of what a handle holds, a pointer followed.
+pub fn heldType(h: *const object.Handle) *const reflect.Type {
+    return target(h.value).type;
+}
+
+/// Whether `v` is a value of the host's type `t` as a script has one: a
+/// handle on one, or, for a tagged union, on one of its arms' payloads or
+/// the member naming an arm that holds nothing.
+pub fn isOf(v: Value, t: *const reflect.Type) bool {
+    switch (v.tag) {
+        .handle => {
+            const held = heldType(v.as(object.Handle));
+            if (held.same(t)) return true;
+            if (t.kind == .@"union") for (t.fields()) |arm| if (arm.type.same(held)) return true;
+            return false;
+        },
+        .enum_value => {
+            if (t.kind != .@"union") return false;
+            const tag = t.info.@"union".tag orelse return false;
+            const host = object.EnumType.from(v.obj()).host orelse return false;
+            return host.same(tag);
+        },
+        else => return false,
+    }
+}
+
+/// The Flux enum a host's enum is to scripts: one for each, made when a
+/// value of it first crosses, with its members' names and numbers.
+pub fn enumType(vm: *Vm, t: *const reflect.Type) Error!*object.EnumType {
+    return fluxEnum(vm, t, nameOf(t));
+}
+
+/// The Flux enum of a tagged union's tag, named as the union is: its arms
+/// that hold nothing are its members.
+pub fn tagType(vm: *Vm, u: *const reflect.Type) Error!*object.EnumType {
+    return fluxEnum(vm, u.info.@"union".tag.?, nameOf(u));
+}
+
+fn fluxEnum(vm: *Vm, t: *const reflect.Type, name: []const u8) Error!*object.EnumType {
+    for (vm.host_enums.items) |e| if (e.host.?.same(t)) return e;
+    vm.heap.paused += 1;
+    defer vm.heap.paused -= 1;
+    const e = try make.enumType(vm, try vm.intern(name));
+    const members = t.members();
+    e.members = try vm.gpa.alloc(*object.String, members.len);
+    e.values = try vm.gpa.alloc(i64, members.len);
+    for (members, e.members, e.values) |m, *member_name, *number| {
+        member_name.* = try vm.intern(m.name.slice());
+        number.* = @bitCast(m.value);
+    }
+    e.host = t;
+    try vm.host_enums.append(vm.gpa, e);
+    return e;
+}
+
+/// The member of the host's enum `t` whose number is `n`, as a script's.
+fn enumValue(vm: *Vm, t: *const reflect.Type, n: i64) Error!Value {
+    const e = try enumType(vm, t);
+    for (e.values, 0..) |number, i| if (number == n) return .enumValue(&e.obj, @intCast(i));
+    return .int(n);
+}
+
+/// The union `rv` as a script has it: its live arm. See the top of the file.
+fn armOf(vm: *Vm, rv: reflect.Value, union_handle: Value) Error!Value {
+    const i = rv.activeIndex() orelse return union_handle;
+    const arm = rv.type.fields()[i];
+    if (arm.type.kind == .void) return armName(vm, rv.type, i);
+    try vm.pushRoot(union_handle);
+    defer vm.popRoot();
+    const payload = rv.fieldAt(i) catch return union_handle;
+    return toFluxAt(vm, payload, union_handle, .{ .field = @intCast(i) });
+}
+
+/// The member of a tagged union's tag naming its arm `i`.
+fn armName(vm: *Vm, t: *const reflect.Type, i: usize) Error!Value {
+    if (t.info.@"union".tag == null) return .null;
+    const e = try tagType(vm, t);
+    const name = try vm.intern(t.fields()[i].name.slice());
+    return .enumValue(&e.obj, e.index(name) orelse return .null);
 }
 
 /// A value as a handle holds it: optionals unwrapped and a pointer to one
@@ -122,8 +213,10 @@ pub fn valueOf(vm: *Vm, rv: reflect.Value) Error!Value {
         },
         .void, .bool, .int, .float, .@"enum" => return toFlux(vm, rv, .null),
         .@"union" => {
-            if (rv.active()) |arm| if (arm.type.kind == .void) return vm.string(arm.name.slice());
-            return copied(vm, rv);
+            const i = rv.activeIndex() orelse return copied(vm, rv);
+            if (t.fields()[i].type.kind == .void) return armName(vm, t, i);
+            const whole = try copied(vm, rv);
+            return armOf(vm, whole.as(object.Handle).value, whole);
         },
         else => return copied(vm, rv),
     }
@@ -209,17 +302,16 @@ fn toFluxAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) 
         .float => return .float(rv.toFloat(f64) orelse 0),
         .@"enum" => {
             const n = rv.wideInt() orelse return .null;
-            if (t.memberOf(@bitCast(@as(i64, @truncate(n))))) |m| return vm.string(m.name.slice());
-            return .int(@truncate(n));
+            return enumValue(vm, t, @truncate(n));
         },
         .optional => {
             const inner = rv.unwrap() orelse return .null;
             return toFluxAt(vm, inner, owner, step);
         },
         .@"union" => {
-            // An arm that holds nothing is its name, as an enum's member is.
-            if (rv.active()) |arm| if (arm.type.kind == .void) return vm.string(arm.name.slice());
-            return handleAt(vm, rv, owner, step);
+            const i = rv.activeIndex() orelse return handleAt(vm, rv, owner, step);
+            if (t.fields()[i].type.kind == .void) return armName(vm, t, i);
+            return armOf(vm, rv, try handleAt(vm, rv, owner, step));
         },
         .pointer => {
             if (t.isString()) if (rv.toString()) |s| return vm.string(s);
@@ -282,18 +374,12 @@ pub fn fromFlux(vm: *Vm, rv: reflect.Value, v: Value) Error!void {
             const f = v.toFloat() orelse return refused(vm, t, v);
             rv.setFloat(f) catch |err| return check(vm, err, t, v);
         },
-        .@"enum" => switch (v.tag) {
-            .string => {
-                const m = t.member(v.as(object.String).bytes()) orelse
-                    return vm.fail("{s} has no member \"{s}\"", .{ t.name.slice(), v.as(object.String).bytes() });
-                rv.setInt(@as(i64, @bitCast(m.value))) catch |err| return check(vm, err, t, v);
-            },
-            .int => rv.setInt(v.asInt()) catch |err| return check(vm, err, t, v),
-            .enum_value => {
-                const e = object.EnumType.from(v.obj());
-                return fromFlux(vm, rv, try vm.string(e.members[v.extra].bytes()));
-            },
-            else => return refused(vm, t, v),
+        .@"enum" => {
+            if (v.tag != .enum_value) return refused(vm, t, v);
+            const e = object.EnumType.from(v.obj());
+            const host = e.host orelse return refused(vm, t, v);
+            if (!host.same(t)) return refused(vm, t, v);
+            rv.setInt(e.values[v.extra]) catch |err| return check(vm, err, t, v);
         },
         .optional => {
             if (v.tag == .null) return rv.setNull() catch |err| check(vm, err, t, v);
@@ -301,19 +387,25 @@ pub fn fromFlux(vm: *Vm, rv: reflect.Value, v: Value) Error!void {
             return fromFlux(vm, inner, v);
         },
         .@"union" => {
-            // A tagged union's arm that holds nothing, by its name:
-            // `setFullscreen("borderless")`. One that holds something needs
-            // it given, which a name cannot.
-            if (v.tag == .string and t.info.@"union".tag != null) {
-                const name = v.as(object.String).bytes();
-                const i = t.fieldIndex(name) orelse return vm.fail("{s} has no arm \"{s}\"", .{ t.name.slice(), name });
-                if (t.fields()[i].type.kind != .void) return vm.fail("{s}.{s} holds a {s}, which a name does not give", .{ t.name.slice(), name, t.fields()[i].type.name.slice() });
+            // An arm that holds nothing, by its member: `.borderless`. One
+            // that holds something, by its payload's handle.
+            if (v.tag == .enum_value and isOf(v, t)) {
+                const e = object.EnumType.from(v.obj());
+                const i = t.fieldIndex(e.members[v.extra].bytes()) orelse return refused(vm, t, v);
                 _ = rv.activateAt(i) catch |err| return check(vm, err, t, v);
                 return;
             }
             if (v.tag == .handle) {
-                rv.copyFrom(try resolve(vm, v.as(object.Handle))) catch |err| return check(vm, err, t, v);
-                return;
+                const from = target(try resolve(vm, v.as(object.Handle)));
+                if (from.type.same(t)) {
+                    rv.copyFrom(from) catch |err| return check(vm, err, t, v);
+                    return;
+                }
+                for (t.fields(), 0..) |arm, i| if (arm.type.same(from.type)) {
+                    const payload = rv.activateAt(i) catch |err| return check(vm, err, t, v);
+                    payload.copyFrom(from) catch |err| return check(vm, err, t, v);
+                    return;
+                };
             }
             return refused(vm, t, v);
         },
@@ -374,7 +466,7 @@ pub fn set(vm: *Vm, h: Value, name: []const u8, v: Value) Error!void {
     // do than be stored.
     if (rv.type.field(name)) |field| if (field.attribute(reflect.attr.Setter)) |setter| {
         const m = rv.type.method(setter.method) orelse return vm.fail("{s}.{s} is written through `{s}`, which a script cannot call", .{ rv.type.name.slice(), name, setter.method });
-        _ = try invoke(vm, m, &.{ h, v });
+        _ = try invoke(vm, m, &.{ h, v }, 0);
         return;
     };
     const f = rv.field(name) catch {
@@ -394,19 +486,90 @@ pub fn index(vm: *Vm, h: Value, i: Value) Error!Value {
     return toFluxAt(vm, item, h, .{ .element = @intCast(at) });
 }
 
-/// The native that calls reflected method `m` on the handle it is given
-/// first, made once per method.
+/// The native that calls the reflected method `name` on the handle it is
+/// given first, made once per method: one of the handle's type, of the
+/// union whose arm it is, or one another type gives it (see `extend`).
 pub fn method(vm: *Vm, h: Value, name: []const u8) Error!?Value {
-    const rv = target(h.as(object.Handle).value);
-    const m = rv.type.method(name) orelse return null;
-    if (vm.reflect_methods.get(m)) |n| return .fromObj(.native, &n.obj);
+    const held = heldType(h.as(object.Handle));
+    if (held.method(name) orelse unionMethod(h.as(object.Handle), name)) |m| return try nativeFor(vm, m, &vm.reflect_methods, callMethod, null);
+    for (vm.extensions.items) |ext| {
+        if (!ext.of.same(held)) continue;
+        const m = extensionMethod(vm, ext, name) orelse continue;
+        return try nativeFor(vm, m, &vm.extension_methods, callExtension, ext);
+    }
+    return null;
+}
+
+fn nativeFor(vm: *Vm, m: *const reflect.Method, natives: *std.AutoHashMapUnmanaged(*const reflect.Method, *object.Native), call: object.NativeFn, ext: ?*Vm.Extension) Error!Value {
+    if (natives.get(m)) |n| return .fromObj(.native, &n.obj);
     // Made before it goes in the map: making it can start a collection, and
     // the collector marks every entry there.
-    const n = try make.native(vm, m.name.slice(), callMethod, 1, null);
+    const n = try make.native(vm, m.name.slice(), call, 1, null);
     n.data = m;
-    try vm.reflect_methods.put(vm.gpa, m, n);
+    n.user = ext;
+    try natives.put(vm.gpa, m, n);
     return .fromObj(.native, &n.obj);
 }
+
+/// A method of the union whose arm's payload `h` is on.
+fn unionMethod(h: *const object.Handle, name: []const u8) ?*const reflect.Method {
+    if (h.owner.tag != .handle) return null;
+    const whole = heldType(h.owner.as(object.Handle));
+    if (whole.kind != .@"union") return null;
+    return whole.method(name);
+}
+
+/// Where a script calls a method: the value it is on, or the union whose
+/// arm that value is, whichever the method belongs to.
+fn selfOf(vm: *Vm, m: *const reflect.Method, h: *const object.Handle) Error!reflect.Value {
+    var at = h;
+    while (true) {
+        const rv = target(try resolve(vm, at));
+        if (m.takesSelf(rv.type) or at.owner.tag != .handle) return rv;
+        at = at.owner.as(object.Handle);
+    }
+}
+
+/// A method of `ext.by` that the values of `ext.of` have: see `extend`.
+pub fn extensionMethod(vm: *const Vm, ext: *const Vm.Extension, name: []const u8) ?*const reflect.Method {
+    for (ext.by.methods.slice()) |*m| {
+        if (std.mem.eql(u8, extensionName(m), name) and extends(vm, m, ext)) return m;
+    }
+    return null;
+}
+
+/// What a method is called on the values it is given to: its `Alias`, or
+/// its own name.
+pub fn extensionName(m: *const reflect.Method) []const u8 {
+    if (m.attribute(Alias)) |a| return a.name;
+    return m.name.slice();
+}
+
+/// Whether `m` of `ext.by` is given to the values of `ext.of`: the first
+/// argument a script would give it is one.
+pub fn extends(vm: *const Vm, m: *const reflect.Method, ext: *const Vm.Extension) bool {
+    const params = m.type.info.function.params.slice();
+    const from: usize = @intFromBool(m.takesSelf(ext.by));
+    for (params[@min(from, params.len)..]) |p| {
+        if (p.type.is(*Vm)) continue;
+        const t = if (p.type.kind == .pointer and p.type.info.pointer.size == .one) p.type.info.pointer.child else p.type;
+        if (t.same(ext.of)) return true;
+        const host = hostType(vm, t) orelse return false;
+        return if (host.script) |s| s.same(ext.of) else false;
+    }
+    return false;
+}
+
+/// The name a method of another type's is given as when it is one of a
+/// value's own: `.parentOf = .{ flux.Alias{ .name = "parent" } }` makes
+/// `app.parentOf(e)` `e.parent()`. See `Vm.extend`.
+pub const Alias = struct { name: []const u8 };
+
+/// Said of a type whose methods' errors a script is given as values, to
+/// `catch`: a file that is not there. Without it, an error from one of a
+/// type's methods stops the script, with the error's name, as a mistake in
+/// the script would.
+pub const GivesErrors = struct {};
 
 const max_args = 16;
 
@@ -419,13 +582,27 @@ const max_args = 16;
 fn callMethod(vm: *Vm, args: []Value) Error!Value {
     const n = vm.current_native.?;
     const m: *const reflect.Method = @ptrCast(@alignCast(n.data.?));
-    return invoke(vm, m, args);
+    return invoke(vm, m, args, 0);
+}
+
+/// A method of another type's called on a value it is given to: on the
+/// value `extend` was given, with the script's value first.
+fn callExtension(vm: *Vm, args: []Value) Error!Value {
+    const n = vm.current_native.?;
+    const m: *const reflect.Method = @ptrCast(@alignCast(n.data.?));
+    const ext: *const Vm.Extension = @ptrCast(@alignCast(n.user.?));
+    if (args.len + 1 > max_args) return vm.fail("`{s}` takes too many arguments to call from a script", .{m.name.slice()});
+    var all: [max_args]Value = undefined;
+    all[0] = ext.receiver;
+    @memcpy(all[1 .. args.len + 1], args);
+    return invoke(vm, m, all[0 .. args.len + 1], 1);
 }
 
 /// Calls `m` with `args`, the first the value it belongs to. The last
 /// arguments may be left out when the method gives them defaults
-/// (`attr.defaults`): those are filled in.
-fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value) Error!Value {
+/// (`attr.defaults`): those are filled in. `implicit` of the arguments
+/// after the first were not the script's to write, as an extension's value.
+fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value, implicit: usize) Error!Value {
     const f = m.type.info.function;
     const params = f.params.slice();
     if (args.len == 0 or args[0].tag != .handle) return vm.fail("`{s}` is called on the value it belongs to", .{m.name.slice()});
@@ -437,13 +614,16 @@ fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value) Error!Value {
     const least = wanted -| defaults.len;
     const given = args.len - 1;
     if (given < least or given > wanted) {
-        if (least == wanted) return vm.fail("`{s}` takes {d} argument{s}, and was given {d}", .{ m.name.slice(), wanted, if (wanted == 1) "" else "s", given });
-        return vm.fail("`{s}` takes {d} to {d} arguments, and was given {d}", .{ m.name.slice(), least, wanted, given });
+        const most = wanted - implicit;
+        const fewest = least -| implicit;
+        const written = given - implicit;
+        if (fewest == most) return vm.fail("`{s}` takes {d} argument{s}, and was given {d}", .{ m.name.slice(), most, if (most == 1) "" else "s", written });
+        return vm.fail("`{s}` takes {d} to {d} arguments, and was given {d}", .{ m.name.slice(), fewest, most, written });
     }
     if (params.len > max_args) return vm.fail("`{s}` takes too many arguments to call from a script", .{m.name.slice()});
     var storage: [max_args][64]u8 align(16) = undefined;
     var values: [max_args]reflect.Value = undefined;
-    values[0] = target(try resolve(vm, args[0].as(object.Handle)));
+    values[0] = try selfOf(vm, m, args[0].as(object.Handle));
     var next: usize = 1;
     for (params[1..], 1..) |p, i| {
         if (p.type.is(*Vm)) {
@@ -468,6 +648,13 @@ fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value) Error!Value {
             @as(*Value, @ptrCast(@alignCast(&storage[i]))).* = a;
             continue;
         }
+        if (p.type.kind == .type) {
+            // A type the script names: `entity.get(Sprite)`.
+            if (a.tag != .host_type) return vm.fail("argument {d} of `{s}` is a type, such as a component's name, and is given {s}", .{ i - implicit, m.name.slice(), types.typeName(a) });
+            values[i] = .init(p.type, &storage[i]);
+            @as(**const reflect.Type, @ptrCast(@alignCast(&storage[i]))).* = a.asHostType();
+            continue;
+        }
         if (a.tag == .handle and hostType(vm, p.type) == null and (p.type.kind == .pointer or p.type.kind == .@"struct")) {
             values[i] = target(try resolve(vm, a.as(object.Handle)));
             continue;
@@ -488,22 +675,23 @@ fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value) Error!Value {
             // A method given the VM stops the script the way a native does.
             if (vm.panic != null and std.mem.eql(u8, name, "Panic")) return error.Panic;
             if (std.mem.eql(u8, name, "OutOfMemory")) return error.OutOfMemory;
-            return make.errorText(vm, name, null);
+            if (values[0].type.attribute(GivesErrors) != null) return make.errorText(vm, name, null);
+            return vm.fail("`{s}` failed: error.{s}", .{ m.name.slice(), name });
         };
-        if (held.get(Value)) |v| return v;
         return resultOf(vm, held);
     }
-    if (r.get(Value)) |v| return v;
     return resultOf(vm, r);
 }
 
 /// A method's result as a script's value. The result is in the call's own
 /// storage, which is gone once the call returns: a value is copied out, as
 /// `valueOf` copies, and only what a pointer leads to - the host's memory,
-/// which stays - is handed over as a handle into it.
+/// which stays - is handed over as a handle into it. A `flux.Value` is
+/// the script's already.
 fn resultOf(vm: *Vm, r: reflect.Value) Error!Value {
     var at = r;
     while (at.type.kind == .optional) at = at.unwrap() orelse return .null;
+    if (at.get(Value)) |v| return v;
     const t = at.type;
     if (t.kind == .pointer and t.info.pointer.size == .one) return toFlux(vm, at, .null);
     return valueOf(vm, at);

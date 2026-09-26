@@ -26,17 +26,14 @@ const Known = union(enum) {
     method: struct { receiver: Type, name: []const u8 },
     prelude: struct { name: []const u8, native: *object.Native },
     math: []const u8,
-    /// A method of a value the host gives: see `host.zig`.
+    /// A method of a value of one of the host's types: see `host.zig`.
     host: HostCall,
     dynamic,
 };
 
 const HostCall = struct {
     sig: *const types.Signature,
-    method: *const reflect.Method,
-    owner: *const reflect.Type,
-    /// The receiver is certainly of `owner`, so the call is checked.
-    checked: bool,
+    found: host.Method,
 };
 
 pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
@@ -60,11 +57,28 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
         const name = fl.name.text;
         const rec = c.recording();
         if (rec) |r| if (r.isPlaceholder(name)) {
-            if (obj.host) |h| r.hostMembers(h.type) else r.members(obj.type);
+            r.members(obj.type);
             method_call = true;
         };
         if (method_call) {
             // The placeholder: a call on it is not checked.
+        } else if (c.pool.hostOf(obj.type)) |ht| {
+            method_call = true;
+            if (host.member(c.vm, ht, name)) |found| switch (found) {
+                .method => |m| {
+                    const sig = try host.signature(c.vm, c.pool.allocator(), m);
+                    if (rec) |r| try member.useHost(c, r, fl.name.span, ht, found, .any);
+                    known = .{ .host = .{ .sig = sig, .found = m } };
+                },
+                .field, .declared => {
+                    if (rec) |r| try member.useHost(c, r, fl.name.span, ht, found, try host.memberType(c.vm, found));
+                    if (found == .declared and found.declared.type == .signal) {
+                        _ = try c.err(fl.name.span, "a signal is not called; emit it: `{s}.emit(...)`", .{name});
+                    } else {
+                        _ = try c.err(fl.name.span, "`{s}.{s}` is not a method", .{ host.nameOf(ht), name });
+                    }
+                },
+            } else if (!host.open(c.vm, ht)) try member.noHostMember(f, ht, fl.name);
         } else if (c.pool.structOf(obj.type)) |s| {
             if (s.method(name)) |m| {
                 if (rec) |r| try r.member(c, fl.name.span, s.self_type, .{ .method = m });
@@ -108,12 +122,6 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
                 if (obj.type == .signal) _ = try h.help("a signal has connect, once, disconnect, emit, is_connected and connections", .{});
             }
             method_call = true;
-        } else if (hostMethod(obj, name)) |m| {
-            const h = obj.host.?;
-            const sig = try host.signature(c.vm, c.pool.allocator(), m, h.type);
-            if (rec) |r| try r.use(.{ .span = fl.name.span, .kind = .method, .type = .any, .doc = host.docOf(m), .detail = try host.methodDetail(c.vm, r.arena(), m, h.type) });
-            known = .{ .host = .{ .sig = sig, .method = m, .owner = h.type, .checked = h.sure } };
-            method_call = true;
         } else {
             method_call = true;
         }
@@ -133,7 +141,6 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     f.setFree(base + 1 + @as(u8, @intFromBool(method_call)));
 
     const ret = try arguments(f, e, known, self_given, awaited);
-    const result_host: ?host.Host = if (known == .host) hostResult(c, known.host, cl.args) else null;
     f.span = e.span;
     const nargs: usize = cl.args.len + @intFromBool(method_call);
     if (nargs > 250) {
@@ -155,42 +162,20 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     if (dst) |d| {
         if (d != base) try f.abc(.move, d, base, 0);
         f.release(if (reuse) d + 1 else mark);
-        return .{ .reg = d, .type = ret, .temp = false, .host = result_host };
+        return .{ .reg = d, .type = ret, .temp = false };
     }
-    return .{ .reg = base, .type = ret, .temp = true, .host = result_host };
+    return .{ .reg = base, .type = ret, .temp = true };
 }
 
-/// The method `name` of a value the host gives, where its host type lists
-/// one.
-fn hostMethod(obj: Operand, name: []const u8) ?*const reflect.Method {
-    const h = obj.host orelse return null;
-    if (!Compiler.dynamic(obj.type)) return null;
-    return host.method(h.type, name);
-}
-
-/// What a host's method gives back, as the host knows it: by its result's
-/// type, or - for a `flux.Value` - as the host says from the strings it is
-/// given, `entity.get("Timer")`.
-fn hostResult(c: *Compiler, h: HostCall, args: []const *const ast.Expr) ?host.Host {
-    const seen = host.seen(c.vm, h.method.type.info.function.return_type);
-    if (seen.host) |t| return .{ .type = t, .sure = h.checked };
-    const ask = c.vm.options.host_result orelse return null;
-    var strings: [16]?[]const u8 = @splat(null);
-    const n = @min(args.len, strings.len);
-    for (args[0..n], strings[0..n]) |a, *s| {
-        if (a.kind == .string) s.* = a.kind.string;
-    }
-    const t = ask.run(ask.context, h.owner, h.method.name.slice(), strings[0..n]) orelse return null;
-    return .{ .type = t, .sure = h.checked };
-}
-
-/// An argument of a host's method, where a script can give it one way only:
-/// a flag, a whole number, a number, a string.
-fn hostArgument(f: *Func, a: *const ast.Expr, given: Operand, p: types.Param) Error!void {
-    const want = p.type;
-    if (want == .any or Compiler.dynamic(given.type)) return;
-    if (given.type == want or (want == .float and given.type == .int)) return;
-    _ = try f.comp.err(a.span, "`{s}` is {s}, and is given {s}", .{ p.name, f.comp.typeName(want), f.comp.typeName(given.type) });
+/// A type named as an argument of a host's method: the host's type it
+/// stands for, when it is one.
+fn typeArgument(f: *Func, a: *const ast.Expr, given: Operand, p: types.Param) Error!?Type {
+    const c = f.comp;
+    if (Compiler.dynamic(given.type)) return null;
+    if (c.pool.metaOf(given.type)) |t| if (c.pool.hostOf(t) != null) return t;
+    _ = try (try c.err(a.span, "`{s}` is a type, and is given {s}", .{ p.name, c.typeName(given.type) }))
+        .help("name one of the host's types, as `Sprite`", .{});
+    return null;
 }
 
 fn isLocal(f: *Func, r: u8) bool {
@@ -219,13 +204,18 @@ fn arguments(f: *Func, e: *const ast.Expr, known: Known, self_given: bool, await
         .host => |h| {
             const params = h.sig.params;
             const least = requiredOf(params);
-            if (h.checked and (args.len < least or args.len > params.len)) try arity(f, e, least, params.len, args.len);
+            if (args.len < least or args.len > params.len) try arity(f, e, least, params.len, args.len);
+            var given: ?Type = null;
             for (args, 0..) |a, i| {
                 const r = try f.alloc();
-                const v = try expr.compile(f, a, r, .unknown);
-                if (h.checked and i < params.len) try hostArgument(f, a, v, params[i]);
+                if (i < params.len and params[i].type_arg) {
+                    const v = try expr.compile(f, a, r, .unknown);
+                    if (try typeArgument(f, a, v, params[i])) |t| given = t;
+                } else {
+                    _ = try expr.typedInto(f, a, r, if (i < params.len) params[i].type else .unknown, "the argument");
+                }
             }
-            return h.sig.ret;
+            return host.resultType(c.vm, h.found.method, h.found.owner, given);
         },
         .method => |m| {
             const first = try builtins.method(c, m.receiver, m.name, &.{});

@@ -52,6 +52,10 @@ fn markRoots(vm: *Vm) void {
     for (vm.classes.items) |c| h.mark(&c.obj);
     var reflected = vm.reflect_methods.valueIterator();
     while (reflected.next()) |n| h.mark(&n.*.obj);
+    var extended = vm.extension_methods.valueIterator();
+    while (extended.next()) |n| h.mark(&n.*.obj);
+    for (vm.extensions.items) |e| h.markValue(e.receiver);
+    for (vm.host_enums.items) |e| h.mark(&e.obj);
     vm.scheduler.mark(h);
     if (vm.task) |t| h.mark(&t.obj);
 }

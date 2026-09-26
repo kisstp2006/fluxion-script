@@ -22,6 +22,7 @@ const Operand = expr.Operand;
 const binary = @import("binary.zig");
 const names = @import("names.zig");
 const host = @import("host.zig");
+const reflect = @import("fluxion_reflect");
 
 pub fn component(name: []const u8) ?u8 {
     if (name.len != 1) return null;
@@ -72,7 +73,7 @@ fn staticMember(f: *Func, e: *const ast.Expr, dst: ?u8) Error!?Operand {
     const c = f.comp;
     if (fl.target.kind != .ident) return null;
     if (f.findLocal(fl.target.kind.ident) != null) return null;
-    const g = c.global(fl.target.kind.ident) orelse return null;
+    const g = c.global(fl.target.kind.ident) orelse return hostStatic(f, e, dst);
     const name = fl.name.text;
     const rec = c.recording();
     if (rec) |r| switch (g.kind) {
@@ -147,6 +148,31 @@ fn staticMember(f: *Func, e: *const ast.Expr, dst: ?u8) Error!?Operand {
     }
 }
 
+/// A member of one of the host's enums, named through it: `Key.space`.
+fn hostStatic(f: *Func, e: *const ast.Expr, dst: ?u8) Error!?Operand {
+    const fl = e.kind.field;
+    const c = f.comp;
+    const type_name = fl.target.kind.ident;
+    if (try names.lookup(f, type_name) != .none) return null;
+    const t = (try host.named(c.vm, type_name)) orelse return null;
+    const en = c.pool.enumOf(t) orelse return null;
+    const rec = c.recording();
+    if (rec) |r| {
+        try r.hostType(c, fl.target.span, type_name, t);
+        if (r.isPlaceholder(fl.name.text)) {
+            r.statics(try c.pool.meta(t));
+            return .{ .reg = try expr.target(f, dst), .type = .unknown, .temp = dst == null };
+        }
+    }
+    if (en.index(fl.name.text)) |i| {
+        if (rec) |r| try r.enumMember(fl.name.span, en, i);
+        return try expr.constant(f, dst, .enumValue(&en.type_obj.obj, i), en.self_type);
+    }
+    const h = try c.err(fl.name.span, "`{s}` has no member `{s}`", .{ en.name, fl.name.text });
+    if (access.nearest(fl.name.text, en.members)) |near| _ = try h.help("did you mean `{s}`?", .{near});
+    return .{ .reg = try expr.target(f, dst), .type = .unknown, .temp = dst == null };
+}
+
 pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     if (try staticMember(f, e, dst)) |op| return op;
     const fl = e.kind.field;
@@ -157,16 +183,16 @@ pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     const t = try expr.compile(f, fl.target, null, .unknown);
     const rec = c.recording();
     if (rec) |r| if (r.isPlaceholder(name)) {
-        if (t.host) |h| r.hostMembers(h.type) else r.members(t.type);
+        r.members(t.type);
         return .{ .reg = try binary.result(f, dst, mark), .type = .unknown, .temp = dst == null };
     };
-    if (t.host) |h| if (Compiler.dynamic(t.type)) return hostMember(f, t, h, fl.name, dst, mark);
+    if (pool.hostOf(t.type)) |ht| return hostMember(f, t, ht, fl.name, dst, mark);
     if (pool.structOf(t.type)) |s| {
         if (s.field(name)) |fd| {
             if (rec) |r| try r.member(c, fl.name.span, s.self_type, .{ .field = fd });
             const out = try binary.result(f, dst, mark);
             try f.abc(.getfield, out, t.reg, @intCast(fd.slot));
-            return .{ .reg = out, .type = fd.type, .temp = dst == null, .host = if (fd.host_type) |ht| .{ .type = ht } else null };
+            return .{ .reg = out, .type = fd.type, .temp = dst == null };
         }
         if (s.method(name)) |m| {
             if (rec) |r| try r.member(c, fl.name.span, s.self_type, .{ .method = m });
@@ -224,23 +250,71 @@ pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     return .{ .reg = out, .type = known orelse .any, .temp = dst == null };
 }
 
-/// A member of a value the host gives, read by name as any value's is: of
-/// the type its host type says, where that lists it - a field - and `any`
-/// otherwise, which the host may still have.
-fn hostMember(f: *Func, t: Operand, h: host.Host, name: ast.Name, dst: ?u8, mark: u8) Error!Operand {
+/// A member of a value of one of the host's types, read by name as any
+/// value's is: of the type the host's type says.
+fn hostMember(f: *Func, t: Operand, ht: *const reflect.Type, name: ast.Name, dst: ?u8, mark: u8) Error!Operand {
     const c = f.comp;
     const out = try binary.result(f, dst, mark);
     try getProp(f, out, t.reg, name.text);
-    if (host.field(h.type, name.text)) |fd| {
-        const seen = host.seen(c.vm, fd.type);
-        if (c.recording()) |r| try r.use(.{ .span = name.span, .kind = .field, .type = seen.type, .doc = host.docOf(fd), .detail = try host.fieldDetail(c.vm, r.arena(), fd, h.type), .mutable = true });
-        return .{ .reg = out, .type = seen.type, .temp = dst == null, .host = if (seen.host) |ht| .{ .type = ht, .sure = h.sure } else null };
-    }
-    if (host.method(h.type, name.text)) |m| if (c.recording()) |r| {
-        try r.use(.{ .span = name.span, .kind = .method, .type = .any, .doc = host.docOf(m), .detail = try host.methodDetail(c.vm, r.arena(), m, h.type) });
+    const found = host.member(c.vm, ht, name.text) orelse {
+        if (host.open(c.vm, ht)) return .{ .reg = out, .type = .any, .temp = dst == null };
+        try noHostMember(f, ht, name);
+        return .{ .reg = out, .type = .unknown, .temp = dst == null };
     };
-    return .{ .reg = out, .type = .any, .temp = dst == null };
+    const ty = try host.memberType(c.vm, found);
+    if (c.recording()) |r| try useHost(c, r, name.span, ht, found, ty);
+    return .{ .reg = out, .type = ty, .temp = dst == null };
 }
+
+/// A host's member named, for an editor: what it is and what the host
+/// says of it.
+pub fn useHost(c: *Compiler, r: *Compiler.Recorder, span: diag.Span, ht: *const reflect.Type, found: host.Member, ty: Type) Error!void {
+    const kind: Compiler.Recorder.Kind = switch (found) {
+        .field => .field,
+        .method => .method,
+        .declared => |d| if (d.type == .signal) .signal else .field,
+    };
+    const name = c.source[span.start..span.end];
+    try r.use(.{
+        .span = span,
+        .kind = kind,
+        .type = ty,
+        .owner = try c.pool.host(ht),
+        .doc = host.docOf(c.vm, found),
+        .detail = try host.detail(c.vm, r.arena(), ht, name, found),
+        .mutable = found == .field or (found == .declared and found.declared.writable),
+    });
+}
+
+/// What is said of a name a host's type has not: the nearest it has, and
+/// for a union, which of its arms has it.
+pub fn noHostMember(f: *Func, ht: *const reflect.Type, name: ast.Name) Error!void {
+    const c = f.comp;
+    const type_name = host.nameOf(ht);
+    const h = try c.err(name.span, "`{s}` has no field or method `{s}`", .{ type_name, name.text });
+    if (ht.kind == .@"union") {
+        var buffer: [16][]const u8 = undefined;
+        const arms = host.armsWith(ht, name.text, &buffer);
+        if (arms.len > 0) {
+            var text: std.Io.Writer.Allocating = .init(c.arena);
+            for (arms, 0..) |arm, i| text.writer.print("{s}`{s}`", .{ if (i == 0) "" else if (i + 1 == arms.len) " and " else ", ", arm }) catch return error.OutOfMemory;
+            _ = try h.help("{s} {s} it: ask which it is first, as `if (x is {s}) {{ ... }}`", .{ text.written(), if (arms.len == 1) "has" else "have", arms[0] });
+            return;
+        }
+    }
+    var offered: Names = .{ .arena = c.arena };
+    try host.eachMember(c.vm, ht, &offered, Names.add);
+    if (access.nearest(name.text, offered.list.items)) |near| _ = try h.help("did you mean `{s}`?", .{near});
+}
+
+const Names = struct {
+    arena: std.mem.Allocator,
+    list: std.ArrayList([]const u8) = .empty,
+
+    fn add(n: *Names, name: []const u8, _: host.Member) std.mem.Allocator.Error!void {
+        try n.list.append(n.arena, name);
+    }
+};
 
 fn builtinHasMethod(c: *Compiler, t: Type, name: []const u8) bool {
     const kind: @import("../vm/Vm.zig").BuiltinType = switch (t) {
@@ -325,6 +399,32 @@ pub fn assignField(f: *Func, target: *const ast.Expr, value: *const ast.Expr, op
     const obj = try expr.compile(f, fl.target, null, .unknown);
     const rec = c.recording();
     if (rec) |r| if (r.isPlaceholder(name)) return r.members(obj.type);
+    if (c.pool.hostOf(obj.type)) |ht| {
+        const want: Type = if (host.member(c.vm, ht, name)) |found| switch (found) {
+            .field => |fd| blk: {
+                if (rec) |r| try useHost(c, r, fl.name.span, ht, found, try host.memberType(c.vm, found));
+                break :blk try host.typeOf(c.vm, fd.field.type);
+            },
+            .declared => |d| blk: {
+                if (rec) |r| try useHost(c, r, fl.name.span, ht, found, try host.memberType(c.vm, found));
+                if (!d.writable) {
+                    _ = try c.err(fl.name.span, "`{s}.{s}` can only be read", .{ host.nameOf(ht), name });
+                    return;
+                }
+                break :blk try host.memberType(c.vm, found);
+            },
+            .method => {
+                _ = try c.err(fl.name.span, "`{s}.{s}` is a method, and cannot be assigned to", .{ host.nameOf(ht), name });
+                return;
+            },
+        } else blk: {
+            if (!host.open(c.vm, ht)) return noHostMember(f, ht, fl.name);
+            break :blk .any;
+        };
+        const v = try operand(f, value, op, want, target, obj.reg, .{ .name = name });
+        try setProp(f, obj.reg, name, v.reg);
+        return;
+    }
     if (c.pool.structOf(obj.type)) |s| {
         const fd = s.field(name) orelse return noMember(f, s, fl.name);
         if (rec) |r| try r.member(c, fl.name.span, s.self_type, .{ .field = fd });

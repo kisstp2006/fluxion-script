@@ -209,8 +209,12 @@ export fn flux_string(c: *CVm, bytes: [*]const u8, len: usize, out: *Value) Stat
 
 export fn flux_type_of(v: Value) c_int {
     return switch (v.tag) {
-        .null, .bool, .int, .float, .vec2, .vec3, .string, .list, .map, .@"error" => @intCast(@intFromEnum(v.tag)),
+        .null, .bool, .int, .float, .vec2, .vec3 => @intCast(@intFromEnum(v.tag)),
         .enum_value => 6,
+        .string => 8,
+        .list => 9,
+        .map => 10,
+        .@"error" => 20,
         .instance => 11,
         .function, .native, .method => 12,
         else => 255,

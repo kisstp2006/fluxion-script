@@ -40,6 +40,11 @@ pub const Item = struct {
     rank: u8 = 0,
     /// A colour's name offered: the colour, 0xRRGGBB.
     color: ?u24 = null,
+    /// What is put in place of the word, when it is not `label`: a whole
+    /// method, header and body, for one the host calls.
+    insert: ?[]const u8 = null,
+    /// Where in `insert` the cursor goes then.
+    caret: ?u32 = null,
 };
 
 pub const Completions = struct {
@@ -84,6 +89,21 @@ pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []co
         .none => return out,
         .builtin => {
             for (docs.annotations) |e| try list.append(arena, .{ .label = e.name, .kind = .annotation, .detail = e.sig, .doc = e.doc });
+            const vm = try service.newVm(gpa, options);
+            defer vm.destroy();
+            for (vm.annotations.items) |e| try list.append(arena, .{
+                .label = try arena.dupe(u8, e.name),
+                .kind = .annotation,
+                .detail = try arena.dupe(u8, e.sig),
+                .doc = try arena.dupe(u8, e.doc),
+            });
+            out.items = list.items;
+            return out;
+        },
+        .method_name, .struct_member => {
+            if (ctx.kind == .method_name) out.start = ctx.decl_start;
+            try hooks(gpa, arena, source, ctx, options, &list);
+            if (ctx.kind == .struct_member) for ([_][]const u8{ "fn", "var", "const", "signal" }) |k| try list.append(arena, .{ .label = k, .kind = .keyword, .rank = 1 });
             out.items = list.items;
             return out;
         },
@@ -100,7 +120,6 @@ pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []co
             try add.keywords();
         },
         .members => |t| try add.members(t),
-        .host_members => |t| try add.hostMembers(t),
         .statics => |t| try add.statics(t),
         .enum_members => |t| try add.enumMembers(t),
         .fields => |f| try add.fields(f.of, f.given),
@@ -116,6 +135,41 @@ pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []co
     }
     out.items = list.items;
     return out;
+}
+
+/// The methods the host calls that the struct at the cursor has not
+/// written yet, each offered whole: `fn input(self, event: InputEvent)`
+/// and an empty body, indented as the line is, the cursor inside.
+fn hooks(gpa: Allocator, arena: Allocator, source: []const u8, ctx: cursor.Context, options: service.Options, list: *std.ArrayList(Item)) service.Error!void {
+    const vm = try service.newVm(gpa, options);
+    defer vm.destroy();
+    _ = try vm.compileSession();
+    const written = try cursor.structMethods(gpa, arena, source, ctx.start);
+    const from = if (ctx.kind == .method_name) ctx.decl_start else ctx.start;
+    const line_start = if (std.mem.lastIndexOfScalar(u8, source[0..from], '\n')) |n| n + 1 else 0;
+    var indent_end = line_start;
+    while (indent_end < from and (source[indent_end] == ' ' or source[indent_end] == '\t')) indent_end += 1;
+    const indent = source[line_start..indent_end];
+    outer: for (vm.hooks.items) |hook| {
+        for (written) |w| if (std.mem.eql(u8, w, hook.name)) continue :outer;
+        var header: Writer.Allocating = .init(arena);
+        header.writer.print("fn {s}(self", .{hook.name}) catch return error.OutOfMemory;
+        for (hook.params) |p| {
+            const t = try host.typeOf(vm, p.type);
+            header.writer.print(", {s}: {s}", .{ p.name, vm.session.?.pool.name(t) }) catch return error.OutOfMemory;
+        }
+        header.writer.writeByte(')') catch return error.OutOfMemory;
+        const head = header.written();
+        const insert = try std.fmt.allocPrint(arena, "{s} {{\n{s}    \n{s}}}", .{ head, indent, indent });
+        try list.append(arena, .{
+            .label = try arena.dupe(u8, hook.name),
+            .kind = .method,
+            .detail = head,
+            .doc = if (hook.doc) |d| try arena.dupe(u8, d) else null,
+            .insert = insert,
+            .caret = @intCast(head.len + 3 + indent.len + 4),
+        });
+    }
 }
 
 const Adder = struct {
@@ -174,6 +228,7 @@ const Adder = struct {
     fn members(ad: *Adder, t0: Type) Allocator.Error!void {
         const p = ad.a.pool();
         const t = p.isOptional(t0) orelse t0;
+        if (p.hostOf(t)) |ht| return host.eachMember(ad.a.vm, ht, HostMembers{ .ad = ad, .of = ht }, HostMembers.add);
         if (p.structOf(t)) |s| {
             for (s.fields.items) |fd| {
                 if (fd.host) {
@@ -206,16 +261,20 @@ const Adder = struct {
         }
     }
 
-    /// What a value the host gives has, after its `.`: the fields and
-    /// methods of its host's type, but those kept out of a person's view.
-    fn hostMembers(ad: *Adder, t: *const reflect.Type) Allocator.Error!void {
-        const vm = ad.a.vm;
-        if (t.kind == .@"struct" or t.kind == .@"union") for (t.fields()) |*fd| {
-            if (host.hidden(fd)) continue;
-            try ad.push(fd.name.slice(), .field, try host.fieldDetail(vm, ad.arena, fd, t), host.docOf(fd), 0);
-        };
-        for (t.methods.slice()) |*m| try ad.push(m.name.slice(), .method, try host.methodDetail(vm, ad.arena, m, t), host.docOf(m), 0);
-    }
+    /// What a value of one of the host's types has, after its `.`.
+    const HostMembers = struct {
+        ad: *Adder,
+        of: *const reflect.Type,
+
+        fn add(h: HostMembers, name: []const u8, found: host.Member) Allocator.Error!void {
+            const kind: Kind = switch (found) {
+                .field => .field,
+                .method => .method,
+                .declared => |d| if (d.type == .signal) .signal else .field,
+            };
+            try h.ad.push(name, kind, try host.detail(h.ad.a.vm, h.ad.arena, h.of, name, found), host.docOf(h.ad.a.vm, found), 0);
+        }
+    };
 
     /// What a struct, an enum or a module declares, after its name and `.`.
     fn statics(ad: *Adder, t: Type) Allocator.Error!void {

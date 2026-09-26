@@ -274,9 +274,7 @@ pub fn writeSignature(a: *const Analysis, w: *Writer, name: []const u8, sig: *co
         if (p.has_default) try w.print(" = {s}", .{p.default_text orelse "..."});
     }
     try w.writeByte(')');
-    if (sig.ret_text) |r| {
-        if (r.len > 0) try w.print(" {s}", .{r});
-    } else if (sig.ret != .void) try w.print(" {s}", .{a.typeName(sig.ret)});
+    if (sig.ret != .void) try w.print(" {s}", .{a.typeName(sig.ret)});
 }
 
 // ---------------------------------------------------------------------------

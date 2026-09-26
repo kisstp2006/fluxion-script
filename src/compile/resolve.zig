@@ -43,6 +43,10 @@ fn unknownType(c: *Compiler, span: diag.Span, name: []const u8) Error!Type {
             n += 1;
         }
     }
+    for (c.vm.named_types.keys()) |k| if (n < names.len) {
+        names[n] = k;
+        n += 1;
+    };
     const h = try c.err(span, "`{s}` is not a type", .{name});
     if (access.nearest(name, names[0..n])) |near| _ = try h.help("did you mean `{s}`?", .{near});
     return .unknown;
@@ -62,6 +66,10 @@ pub fn typeExpr(c: *Compiler, t: *const ast.TypeExpr) Error!Type {
                 const h = try c.err(t.span, "`{s}` is a {s}, not a type", .{ name, @tagName(g.kind) });
                 _ = try h.label(c.at(g.span), "declared here", .{});
                 return .unknown;
+            }
+            if (try @import("host.zig").named(c.vm, name)) |ht| {
+                if (rec) |r| try r.hostType(c, t.span, name, ht);
+                return ht;
             }
             if (rec) |r| if (r.isPlaceholder(name)) {
                 try r.typeNames(c);

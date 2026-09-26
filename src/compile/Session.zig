@@ -15,6 +15,8 @@ modules: std.StringHashMapUnmanaged(*types.Module) = .empty,
 loading: std.StringHashMapUnmanaged(void) = .empty,
 /// Set by an editor's language service, to be told what each name means.
 recorder: ?*@import("Recorder.zig") = null,
+/// The host's enums as the compiler has them: see `host.enumOf`.
+host_enums: std.ArrayList(*types.Enum) = .empty,
 
 pub fn create(gpa: Allocator) Allocator.Error!*Session {
     const s = try gpa.create(Session);
@@ -25,6 +27,7 @@ pub fn create(gpa: Allocator) Allocator.Error!*Session {
 pub fn destroy(s: *Session, gpa: Allocator) void {
     s.modules.deinit(gpa);
     s.loading.deinit(gpa);
+    s.host_enums.deinit(gpa);
     s.pool.deinit();
     gpa.destroy(s);
 }

@@ -17,6 +17,7 @@ const Compiler = @import("Compiler.zig");
 const Error = Compiler.Error;
 const expr = @import("expr.zig");
 const Operand = expr.Operand;
+const host = @import("host.zig");
 
 pub const Place = union(enum) {
     local: u8,
@@ -72,9 +73,9 @@ pub fn read(f: *Func, name: []const u8, span: diag.Span, dst: ?u8) Error!Operand
             const l = localByReg(f, r).?;
             if (dst) |d| {
                 if (d != r) try f.abc(.move, d, r, 0);
-                return .{ .reg = d, .type = l.type, .temp = false, .host = l.host };
+                return .{ .reg = d, .type = l.type, .temp = false };
             }
-            return .{ .reg = r, .type = l.type, .temp = false, .host = l.host };
+            return .{ .reg = r, .type = l.type, .temp = false };
         },
         .upval => |u| {
             const r = try expr.target(f, dst);
@@ -92,16 +93,36 @@ pub fn read(f: *Func, name: []const u8, span: diag.Span, dst: ?u8) Error!Operand
             try f.abx(.getglobal, r, @intCast(g.index));
             return .{ .reg = r, .type = g.type, .temp = dst == null };
         },
-        .builtin => |v| {
-            var op = try expr.constant(f, dst, v, .any);
-            op.host = @import("host.zig").ofGlobal(c.vm, name, v);
-            return op;
-        },
+        .builtin => |v| return expr.constant(f, dst, v, try builtinType(c, name, v)),
         .none => {
+            if (try hostType(f, name, span, dst)) |op| return op;
             try notDeclared(f, name, span);
             return .{ .reg = try expr.target(f, dst), .type = .unknown, .temp = dst == null };
         },
     }
+}
+
+/// What a global the host gives is: what the host declared it to be, where
+/// the scripts are only compiled, or its handle's type.
+pub fn builtinType(c: *Compiler, name: []const u8, v: Value) Error!Type {
+    if (c.vm.global_types.get(name)) |t| return host.typeOf(c.vm, t);
+    if (v.tag == .handle) return host.typeOf(c.vm, @import("../reflect.zig").heldType(v.as(object.Handle)));
+    return .any;
+}
+
+/// One of the host's types named where a value goes: `Sprite` in
+/// `entity.get(Sprite)`, `Key` in `Key.space`.
+fn hostType(f: *Func, name: []const u8, span: diag.Span, dst: ?u8) Error!?Operand {
+    const c = f.comp;
+    const t = c.vm.named_types.get(name) orelse return null;
+    const inner = (try host.named(c.vm, name)).?;
+    const meta = try c.pool.meta(inner);
+    if (c.recording()) |r| try r.hostType(c, span, name, inner);
+    if (t.kind == .@"enum") {
+        const e = c.pool.enumOf(inner).?;
+        return try expr.constant(f, dst, .fromObj(.enum_type, &e.type_obj.obj), meta);
+    }
+    return try expr.constant(f, dst, .hostType(t), meta);
 }
 
 pub fn notDeclared(f: *Func, name: []const u8, span: diag.Span) Error!void {
@@ -114,6 +135,7 @@ pub fn notDeclared(f: *Func, name: []const u8, span: diag.Span) Error!void {
     for (c.globals.keys()) |k| try candidates.append(c.gpa, k);
     var it = c.vm.prelude.keyIterator();
     while (it.next()) |k| try candidates.append(c.gpa, k.*.bytes());
+    for (c.vm.named_types.keys()) |k| try candidates.append(c.gpa, k);
     const h = try c.err(span, "`{s}` is not declared", .{name});
     if (access.nearest(name, candidates.items)) |near| {
         _ = try h.help("did you mean `{s}`?", .{near});
@@ -129,6 +151,10 @@ pub fn typeValue(f: *Func, e: *const ast.Expr) Error!Type {
     switch (e.kind) {
         .ident => |name| {
             const g = c.global(name) orelse {
+                if (c.vm.named_types.contains(name)) {
+                    _ = try c.err(e.span, "a `{s}` is the host's to make, not a script's", .{name});
+                    return .unknown;
+                }
                 try notDeclared(f, name, e.span);
                 return .unknown;
             };

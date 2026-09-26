@@ -101,9 +101,6 @@ pub const Completion = union(enum) {
     scope: []const Item,
     /// After `value.`: the fields and methods of its type.
     members: Type,
-    /// After `value.` where the host gives the value: the fields and methods
-    /// of the host's type.
-    host_members: *const @import("fluxion_reflect").Type,
     /// After `Type.` or `module.`: what the type or the module declares.
     statics: Type,
     /// `.name` where a member of this enum is wanted.
@@ -205,6 +202,13 @@ pub fn place(r: *Recorder, f: *Func, name: []const u8, span: diag.Span, p: names
 
 pub fn global(r: *Recorder, c: *Compiler, span: diag.Span, g: Compiler.Global) Allocator.Error!void {
     try r.use(.{ .span = span, .kind = globalKind(g.kind), .type = g.type, .decl = c.at(g.span), .mutable = g.kind == .variable });
+}
+
+/// One of the host's types, named: `Sprite`, `Key`.
+pub fn hostType(r: *Recorder, c: *Compiler, span: diag.Span, name: []const u8, t: Type) Allocator.Error!void {
+    const kind: Kind = if (c.pool.enumOf(t) != null) .@"enum" else .@"struct";
+    const detail = try std.fmt.allocPrint(r.arena(), "{s} {s}", .{ if (kind == .@"enum") "enum" else "struct", name });
+    try r.use(.{ .span = span, .kind = kind, .type = t, .doc = @import("host.zig").typeDoc(c.vm, name), .detail = detail });
 }
 
 pub fn enumMember(r: *Recorder, span: diag.Span, en: *const types.Enum, index: u32) Allocator.Error!void {
@@ -326,10 +330,6 @@ pub fn members(r: *Recorder, t: Type) void {
     if (r.completion == null) r.completion = .{ .members = t };
 }
 
-pub fn hostMembers(r: *Recorder, t: *const @import("fluxion_reflect").Type) void {
-    if (r.completion == null) r.completion = .{ .host_members = t };
-}
-
 pub fn statics(r: *Recorder, t: Type) void {
     if (r.completion == null) r.completion = .{ .statics = t };
 }
@@ -359,6 +359,11 @@ pub fn typeNames(r: *Recorder, c: *Compiler) Allocator.Error!void {
         .@"struct", .@"enum", .import => try items.append(r.arena(), .{ .name = name, .kind = globalKind(g.kind), .type = g.type, .decl = c.at(g.span) }),
         else => {},
     };
+    for (c.vm.named_types.keys()) |name| {
+        if (c.globals.contains(name)) continue;
+        const t = (try @import("host.zig").named(c.vm, name)).?;
+        try items.append(r.arena(), .{ .name = name, .kind = if (c.pool.enumOf(t) != null) .@"enum" else .@"struct", .type = try c.pool.meta(t) });
+    }
     r.completion = .{ .types = items.items };
 }
 

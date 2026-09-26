@@ -88,7 +88,7 @@ pub fn shell(ui: *Ui, ed: *Code, runner: *Runner, state: *State, focused: bool) 
         defer ui.close();
         if (members(ui, ed)) |at| action = .{ .jump = at };
         ui.empty(.{ .width = .fixed(1), .height = .grow, .background_color = theme.border });
-        code_view.draw(ed, ui, focused);
+        code_view.draw(ed, ui, focused and code_view.hasKeys(ui));
     }
 
     // The edge the panel is resized by.

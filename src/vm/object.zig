@@ -268,6 +268,8 @@ pub const EnumType = struct {
     name: *String,
     members: []*String = &.{},
     values: []i64 = &.{},
+    /// The host's enum it stands for, when it is one: see `reflect.zig`.
+    host: ?*const @import("fluxion_reflect").Type = null,
     methods: std.AutoHashMapUnmanaged(*String, Value) = .empty,
     module: ?*Module = null,
 

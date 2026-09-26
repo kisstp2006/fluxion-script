@@ -273,44 +273,86 @@ its fields - `timer.timeout` on a component whose struct has no such field:
 a value to give the script, or null for the usual "has no field" panic.
 `Vm.Options.host_set_member` is asked the same when such a member is
 written - `label.text = "Hi"` on a component whose words the host keeps
-beside it - and says whether it took the value.
+beside it - and says whether it took the value. The compiler knows them by
+what `vm.declareMember` says: see below.
 And a reflected method's parameter of type `flux.Value` takes what the
 script passed as it is - a function to call later, a signal, an instance.
 
-### What the compiler knows of the host's values
+### The host's types in scripts
 
-A value the host gives is `any` to the compiler, but where the host says
-of which of its types it is, the compiler knows that type's fields and
-methods: it checks each call of a method as it would a script function's -
-how many arguments, the last ones left out where the method gives them
-defaults, and a flag, a whole number, a number or a string where the
-method takes nothing else - and an editor offers them after the `.`, shows
-their signatures as the call is typed, and their docs on a hover.
+A struct, a union or a handle of the host's is a type to the compiler, as
+a script's own struct is: named in a type, known by what its reflected type
+lists, and checked. `vm.declareType(t)` makes one a name scripts write, by
+the type's own name without its file:
 
 ```zig
-// Known by the handle's type: `app.moveAndSlide(1, 2)` is refused as it is compiled.
-try vm.defineGlobal("app", try vm.handle(&app), "The running game.");
-// Where the scripts are only compiled - an editor's analysis - with nothing behind it.
-try vm.declareGlobal("app", fluxion_reflect.typeOf(App), "The running game.");
-// `self.entity` holds an EntityRef.
-try vm.declareHostMemberOf("entity", fluxion_reflect.typeOf(EntityRef), "The entity this script is on.");
+inline for (.{ App, EntityRef, Sprite, Timer, InputEvent, KeyEvent, Key }) |T|
+    try vm.declareType(fluxion_reflect.typeOf(T));
 ```
 
-What a field or a method's result is, is known the same way: a number, a
-string, a vector, or a value of another of the host's types, whose members
-are known in turn - `app.find("Door").get("Timer").start()` all checked.
-`HostType.script` says what a converted type is to a script: an entity is
-the handle the scripts know entities by. And `Vm.Options.host_result` says
-what a method that gives back a `flux.Value` gives, from the strings it is
-called with: `entity.get("Timer")` is the Timer.
+```flux
+fn aim(target: Entity) Sprite {
+    return target.get(Sprite);      // a type where a value goes
+}
+```
 
-A call is checked only where the receiver is certainly of the type: on a
-global, a host member, a `const` given one of those, or straight on what a
-call gives. A `var` may be given another value, so its calls are offered
-and not checked. Nothing else about the value changes: it is still `any`
-to every other rule, a member its type does not list is still the host's to
-have, and an argument the host converts - a path for a texture - is not
-the compiler's to refuse.
+A value's type is known from where it comes: a global the host defined (by
+its handle's type, or where the scripts are only compiled, by
+`vm.declareGlobal(name, type, doc)`), a host member
+(`vm.declareHostMemberOf`), a field, what a method gives back. Its fields
+and methods are offered after the `.`, their signatures shown as a call is
+typed and their docs on a hover, and each call is checked as a script
+function's is: how many arguments - the last ones may be left out where the
+method gives them defaults (`attr.defaults`) - and of what types.
+
+- **An enum** of the host's is a Flux enum of the same name and members,
+  both ways: `deck.setMode(.loop)`, `if (event.key == .space)`,
+  `Key.space`. `HostType.given` says what a converted type is when it is
+  one of the language's own - a texture's path is a `string`, a colour a
+  `color`; `HostType.script` when it is a handle of another of the host's
+  types, as an entity is.
+- **A tagged union** is its live arm: the payload's handle, or for an arm
+  that holds nothing, the member of its tag naming it (`.borderless`, where
+  the union is wanted). `x is KeyEvent` asks which arm it is, and inside
+  the `if` - after an `and`, and past an `if (!(x is KeyEvent)) return;` -
+  a constant is known as that arm's payload: its fields, its methods and the
+  union's. A field every arm has is the union's too; one only some have is
+  a mistake until `is` says which, and the compiler names the arms that
+  have it.
+- **A method given a type** - a parameter of type `*const
+  fluxion_reflect.Type`, which a script passes by name - that gives back a
+  `flux.Value` gives a value of that type, a `?flux.Value` one that may be
+  null: `entity.get(Sprite)` is a Sprite, `entity.find(Sprite)` a
+  `?Sprite`.
+- **An error** a method returns stops the script, with the error's name,
+  as a mistake in the script would; the errors of the methods of a type
+  marked `flux.GivesErrors` (in `reflect_attributes`) are values the script
+  catches instead, and the method's result is `!T`: `files.readText(path)
+  catch ""`.
+- **Another type's methods**: `vm.extend(of, by, receiver)` gives the
+  values of `of` every method of `receiver` - a handle of `by` - whose first
+  argument a script gives is one of `of`: `app.childCount(e)` as
+  `e.childCount()`. `flux.Alias{ .name = "parent" }` names one as the value's
+  method, where its own name reads badly there.
+- **Members its type does not list** - a component's signal, the words it
+  keeps beside it - are `vm.declareMember(.{ .of, .name, .type, .writable,
+  .doc })`, and the host finds them as the script runs, through
+  `Vm.Options.host_member` and `host_set_member`. A type whose values have
+  members only the host can know, named by data - a material's numbers,
+  named by its shader - is `vm.declareOpen(t)`: another name on one of them
+  is `any` rather than a mistake.
+- **The methods the host calls** on a script's instances, `vm.declareHook(.{
+  .name = "input", .params = &.{.{ .name = "event", .type = typeOf(InputEvent) }} })`:
+  a struct's method of the name is checked against it as it is compiled,
+  a parameter it gave no type (or `any`) gets the hook's, and an editor
+  offers the whole method - header and empty body - where a struct's member
+  is written.
+- **The annotations the host reads**, `vm.declareAnnotation(.{ .name =
+  "range", .sig = "@range(min, max, step)", .doc = ... })`, are offered
+  after a `@`; another one on a field is warned of.
+- **What the host says of its members**, besides a member's `attr.Doc`:
+  `Vm.Options.docs`, a list sorted by `"Type.member"` - what an engine
+  generates from its doc comments.
 
 ## Time, tasks and panics
 

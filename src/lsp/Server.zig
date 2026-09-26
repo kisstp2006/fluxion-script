@@ -415,9 +415,25 @@ const CompletionItem = struct {
     detail: ?[]const u8,
     documentation: ?Markup,
     sort_text: []const u8,
+    filter_text: []const u8,
+    /// 2 for a snippet: `$0` where the cursor goes.
+    insert_text_format: u8 = 1,
     text_edit: struct { range: Range, new_text: []const u8, pub const json_case = .camel; },
     pub const json_case = .camel;
 };
+
+/// What a completion puts in, as a snippet when it says where the cursor
+/// goes: the text with `$`, `}` and `\` escaped, and `$0` there.
+fn snippet(arena: Allocator, text: []const u8, caret: u32) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (text, 0..) |ch, i| {
+        if (i == caret) try out.appendSlice(arena, "$0");
+        if (ch == '$' or ch == '}' or ch == '\\') try out.append(arena, '\\');
+        try out.append(arena, ch);
+    }
+    if (caret >= text.len) try out.appendSlice(arena, "$0");
+    return out.items;
+}
 
 fn completion(s: *Server, arena: Allocator, id: json.Value, d: *Document, params: json.Value) !void {
     const at = offsetOf(d, params);
@@ -433,7 +449,11 @@ fn completion(s: *Server, arena: Allocator, id: json.Value, d: *Document, params
         .detail = if (i.detail.len > 0) i.detail else null,
         .documentation = if (i.doc) |doc| .{ .value = doc } else null,
         .sort_text = try std.fmt.allocPrint(arena, "{d}{s}", .{ i.rank, i.label }),
-        .text_edit = .{ .range = replace, .new_text = i.label },
+        // A whole method is found by its header, `fn input`, whether the
+        // word replaced is `inp` or `fn inp`.
+        .filter_text = if (i.insert) |text| text[0 .. std.mem.indexOfScalar(u8, text, '(') orelse text.len] else i.label,
+        .insert_text_format = if (i.caret != null) 2 else 1,
+        .text_edit = .{ .range = replace, .new_text = if (i.insert) |text| (if (i.caret) |caret| try snippet(arena, text, caret) else text) else i.label },
     };
     try s.respond(id, .{ .isIncomplete = false, .items = items });
 }

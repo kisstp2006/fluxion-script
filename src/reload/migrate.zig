@@ -213,6 +213,7 @@ fn zero(vm: *Vm, check: types.Check, depth: u8) Allocator.Error!Value {
             .enum_type => |e| .enumValue(&e.obj, 0),
             .function => unset(vm),
             .class => |c| if (depth < 8) instanceOf(vm, c, depth + 1) else .null,
+            .host => .null,
         },
     };
 }

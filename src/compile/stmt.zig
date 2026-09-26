@@ -137,7 +137,6 @@ fn varDecl(f: *Func, v: *const ast.VarDecl) Error!void {
     const declared: ?Type = if (v.type) |t| try @import("resolve.zig").typeExpr(c, t) else null;
     const r = try f.alloc();
     var t: Type = .unknown;
-    var host: ?@import("host.zig").Host = null;
     if (v.value) |init| {
         if (declared) |d| {
             t = (try expr.typedInto(f, init, r, d, "the variable")).type;
@@ -145,9 +144,6 @@ fn varDecl(f: *Func, v: *const ast.VarDecl) Error!void {
         } else {
             const value = try expr.into(f, init, r, .unknown);
             t = try inferred(f, value.type, v.name);
-            // A variable may be given another value: what it holds is only
-            // offered, not checked.
-            if (value.host) |h| host = .{ .type = h.type, .sure = h.sure and v.is_const };
         }
     } else if (declared) |d| {
         const zero = decl.zeroOf(c, d);
@@ -164,7 +160,6 @@ fn varDecl(f: *Func, v: *const ast.VarDecl) Error!void {
     for (v.annotations) |a| _ = try c.err(a.name.span, "`@{s}` is for a struct's fields", .{a.name.text});
     f.release(r + 1);
     try f.declare(v.name.text, r, t, v.is_const, v.name.span);
-    f.locals.items[f.locals.items.len - 1].host = host;
 }
 
 fn localFunction(f: *Func, node: *const ast.Fn) Error!void {
@@ -289,9 +284,12 @@ fn ifStmt(f: *Func, cond: *const ast.Expr, capture: ?ast.Name, then: *const ast.
     } else {
         try control.jumpIf(f, cond, false, &skip);
         f.release(mark);
+        const narrowed = try control.narrow(f, cond, true);
         try scoped(f, then);
+        f.unnarrow(narrowed);
     }
     const then_reachable = f.reachable;
+    var else_reachable = true;
     if (otherwise) |o| {
         const end = try f.jumpForward(.jmp, 0, 0);
         try f.patchAll(skip.items, f.here());
@@ -306,8 +304,11 @@ fn ifStmt(f: *Func, cond: *const ast.Expr, capture: ?ast.Name, then: *const ast.
             try f.leave();
         } else {
             f.release(mark);
+            const narrowed = if (capture == null) try control.narrow(f, cond, false) else f.narrowed.items.len;
             try scoped(f, o);
+            f.unnarrow(narrowed);
         }
+        else_reachable = f.reachable;
         f.reachable = f.reachable or then_reachable;
         try f.patchHere(end);
     } else {
@@ -315,6 +316,9 @@ fn ifStmt(f: *Func, cond: *const ast.Expr, capture: ?ast.Name, then: *const ast.
         f.reachable = true;
     }
     f.release(mark);
+    // What follows is reached through one branch only: what that branch's
+    // condition says holds to the end of the block.
+    if (capture == null and then_reachable != else_reachable) _ = try control.narrow(f, cond, then_reachable);
 }
 
 /// A branch or a loop body in a scope of its own, so what it declares ends
@@ -367,6 +371,7 @@ fn whileStmt(f: *Func, x: anytype) Error!void {
         const always = x.cond.kind == .bool and x.cond.kind.bool;
         try control.jumpIf(f, x.cond, false, &exit);
         if (always) f.reachable = true;
+        _ = try control.narrow(f, x.cond, true);
     }
     try pushLoop(f, x.label);
     try scoped(f, x.body);

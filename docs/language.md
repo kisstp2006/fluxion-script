@@ -195,6 +195,19 @@ switch (key) {
 }
 ```
 
+What `is` says is known where it holds: inside the `if`, on the right of
+an `and`, and past an `if` whose other way returns, a constant - a
+parameter, a `const`, a capture - is known as that type, with its fields
+and methods. A `var` is not, as it may be given another value.
+
+```zig
+fn hit(by: any) {
+    if (by is Bullet and by.speed > 10) print("fast");
+    if (!(by is Enemy)) return;
+    by.recoil();                                    // an Enemy here
+}
+```
+
 On an enum a switch must handle every member, or say `else`; the compiler
 names the ones missing. The same holds for a bool once `true` and `false`
 are both there. A prong may set something - `.run => speed = 5,` - when

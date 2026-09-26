@@ -36,6 +36,15 @@ pub const HostValue = @import("api.zig").HostValue;
 pub const Resolver = object.Resolver;
 /// One of the host's types as a script sees it. See `Vm.HostType`.
 pub const HostType = Vm.HostType;
+/// A method of another type's, named as a value's own: see `Vm.extend`.
+pub const Alias = @import("reflect.zig").Alias;
+/// Said of a type whose methods' errors a script catches: see
+/// `reflect.zig`.
+pub const GivesErrors = @import("reflect.zig").GivesErrors;
+pub const Hook = Vm.Hook;
+pub const Annotation = Vm.Annotation;
+pub const Doc = Vm.Doc;
+pub const DeclaredMember = Vm.DeclaredMember;
 pub const classOf = @import("api.zig").classOf;
 pub const methodsOf = @import("api.zig").methodsOf;
 pub const signalsOf = @import("api.zig").signalsOf;

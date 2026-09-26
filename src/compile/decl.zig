@@ -204,7 +204,8 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
     }
     const inherited = info.fields.items.len;
     if (info.parent == null) for (vm.host_members.items) |m| {
-        try info.fields.append(c.pool.allocator(), .{ .name = m.name, .type = .any, .slot = @intCast(info.fields.items.len), .is_const = true, .is_signal = false, .span = .empty, .file = .none, .host = true, .doc = m.doc, .host_type = m.type });
+        const t: Type = if (m.type) |host_type| try @import("host.zig").typeOf(vm, host_type) else .any;
+        try info.fields.append(c.pool.allocator(), .{ .name = m.name, .type = t, .slot = @intCast(info.fields.items.len), .is_const = true, .is_signal = false, .span = .empty, .file = .none, .host = true, .doc = m.doc });
     };
     for (node.fields) |f| {
         if (info.field(f.name.text)) |prior| {
@@ -278,6 +279,7 @@ fn resolveStruct(c: *Compiler, s: StructDecl) Error!void {
                     if (std.mem.eql(u8, a.name.text, "export")) {
                         out.exported = true;
                     } else {
+                        try unheard(c, a);
                         try annotate(c, out, a);
                     }
                 }
@@ -318,6 +320,26 @@ fn literalDefault(c: *Compiler, what: []const u8, t: Type, lit: ?Literal, v: *co
     _ = try (try c.err(v.span, "{s} must be {s}, not {s}", .{ what, c.typeName(t), c.typeName(l.type) }))
         .text("this is {s}", .{c.typeName(l.type)});
     return null;
+}
+
+/// An annotation the host did not say it reads, where it said which it
+/// does: most likely a mistake.
+fn unheard(c: *Compiler, a: ast.Annotation) Error!void {
+    const vm = c.vm;
+    if (vm.annotations.items.len == 0) return;
+    var names: [64][]const u8 = undefined;
+    var n: usize = 0;
+    names[n] = "export";
+    n += 1;
+    for (vm.annotations.items) |known| {
+        if (std.mem.eql(u8, known.name, a.name.text)) return;
+        if (n < names.len) {
+            names[n] = known.name;
+            n += 1;
+        }
+    }
+    const h = try c.warn(a.name.span, "`@{s}` is no annotation the host reads", .{a.name.text});
+    if (@import("../vm/access.zig").nearest(a.name.text, names[0..n])) |near| _ = try h.help("did you mean `@{s}`?", .{near});
 }
 
 /// An annotation of a field's besides `@export` - `@range(0, 100)`,
@@ -378,6 +400,7 @@ fn resolveMethods(c: *Compiler, s: StructDecl) Error!void {
             continue;
         }
         const sig = try signature(c, m, s.info.self_type);
+        if (vm.hookNamed(name)) |hook| try hooked(c, m, sig, hook);
         if (s.info.parent) |p| if (p.method(name)) |inherited| {
             if (!sameShape(inherited.sig, sig)) {
                 const h = try c.err(m.name.?.span, "`{s}.{s}` must take the arguments, and return the type, of the `{s}.{s}` it overrides", .{ s.info.name, name, p.name, name });
@@ -391,6 +414,29 @@ fn resolveMethods(c: *Compiler, s: StructDecl) Error!void {
         try s.info.methods.put(c.pool.allocator(), name, .{ .name = name, .sig = sig, .span = m.name.?.span, .file = c.file });
         try c.functions.append(c.gpa, .{ .node = m, .sig = sig, .owner = .{ .@"struct" = s.info }, .global = null, .proto = proto });
     }
+}
+
+/// A method the host calls: what it takes checked against what the host
+/// gives, and a parameter given no type given the one the host passes.
+fn hooked(c: *Compiler, node: *const ast.Fn, sig: *types.Signature, hook: *const @import("../vm/Vm.zig").Hook) Error!void {
+    if (!sig.has_self) return;
+    const params = sig.params[1..];
+    if (params.len != hook.params.len) {
+        var text: std.Io.Writer.Allocating = .init(c.arena);
+        (blk: {
+            text.writer.print("fn {s}(self", .{hook.name}) catch |e| break :blk e;
+            for (hook.params) |p| text.writer.print(", {s}: {s}", .{ p.name, c.typeName(try @import("host.zig").typeOf(c.vm, p.type)) }) catch |e| break :blk e;
+            text.writer.writeByte(')') catch |e| break :blk e;
+        }) catch return error.OutOfMemory;
+        const h = try c.warn(node.name.?.span, "the host calls `{s}` with {d} argument{s}, and this takes {d}", .{ hook.name, hook.params.len, if (hook.params.len == 1) "" else "s", params.len });
+        _ = try h.help("write it `{s}`", .{text.written()});
+        return;
+    }
+    const typed = try c.pool.allocator().dupe(types.Param, sig.params);
+    for (typed[1..], hook.params) |*p, given| {
+        if (p.type == .any) p.type = try @import("host.zig").typeOf(c.vm, given.type);
+    }
+    sig.params = typed;
 }
 
 /// An override is called wherever the method it overrides is, with

@@ -115,12 +115,13 @@ fn typeText(c: *Compiler, t: Type, w: *Writer) Writer.Error!void {
         },
         .function => |sig| try signature(c, sig, w),
         .@"struct" => |s| try qualified(c, s.file, s.name, w),
-        .@"enum" => |e| try qualified(c, e.file, e.name, w),
+        .@"enum" => |e| if (e.type_obj.host) |h| try w.print("host:{s}", .{h.name.slice()}) else try qualified(c, e.file, e.name, w),
         .module => |m| try w.print("module {s}", .{m.name}),
         .meta => |x| {
             try w.writeAll("type ");
             try typeText(c, x, w);
         },
+        .host => |h| try w.print("host:{s}", .{h.name.slice()}),
     }
 }
 

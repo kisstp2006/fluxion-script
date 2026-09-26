@@ -38,6 +38,7 @@ pub fn value(w: *Writer, v: Value, quoted: bool, depth: u32) Writer.Error!void {
     switch (v.tag) {
         .null => try w.writeAll("null"),
         .undefined => try w.writeAll("undefined"),
+        .host_type => try w.writeAll(@import("../reflect.zig").nameOf(v.asHostType())),
         .bool => try w.writeAll(if (v.asBool()) "true" else "false"),
         .int => try w.print("{d}", .{v.asInt()}),
         .float => try float(w, v.asFloat()),

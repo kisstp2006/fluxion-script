@@ -11,6 +11,8 @@ const value_mod = @import("value.zig");
 const Value = value_mod.Value;
 const Tag = value_mod.Tag;
 const object = @import("object.zig");
+const reflect = @import("fluxion_reflect");
+const bridge = @import("../reflect.zig");
 
 pub const Check = enum(u32) {
     any,
@@ -51,6 +53,8 @@ pub const Info = union(enum) {
     enum_type: *object.EnumType,
     error_union: Check,
     function: void,
+    /// A value of the host's type: see `bridge.isOf`.
+    host: *const reflect.Type,
 };
 
 pub const Table = struct {
@@ -92,7 +96,7 @@ pub const Table = struct {
             .signal => v.tag == .signal,
             .@"error" => v.tag == .@"error",
             .null => v.tag == .null,
-            .type => v.tag == .class or v.tag == .enum_type,
+            .type => v.tag == .class or v.tag == .enum_type or v.tag == .host_type,
             _ => switch (t.get(c).?) {
                 .optional => |inner| v.tag == .null or t.accepts(inner, v),
                 .error_union => |inner| v.tag == .@"error" or t.accepts(inner, v),
@@ -101,6 +105,7 @@ pub const Table = struct {
                 .class => |class| v.tag == .instance and v.as(object.Instance).class.isSubclassOf(class),
                 .enum_type => |e| v.tag == .enum_value and v.obj() == &e.obj,
                 .function => v.tag == .function or v.tag == .native or v.tag == .method,
+                .host => |host| bridge.isOf(v, host),
             },
         };
     }
@@ -151,6 +156,7 @@ pub const Table = struct {
                 .class => |class| try w.writeAll(class.name.bytes()),
                 .enum_type => |e| try w.writeAll(e.name.bytes()),
                 .function => try w.writeAll("fn"),
+                .host => |host| try w.writeAll(bridge.nameOf(host)),
             },
         }
     }
@@ -162,8 +168,8 @@ pub fn typeName(v: Value) []const u8 {
         .instance => v.as(object.Instance).class.name.bytes(),
         .enum_value => object.EnumType.from(v.obj()).name.bytes(),
         .function, .native, .method => "fn",
-        .class => "type",
-        .enum_type => "type",
+        .class, .enum_type, .host_type => "type",
+        .handle => bridge.nameOf(bridge.heldType(v.as(object.Handle))),
         .@"error" => "error",
         .undefined => "an uninitialised variable",
         else => @tagName(v.tag),

@@ -31,9 +31,6 @@ pub const Local = struct {
     captured: bool = false,
     used: bool = false,
     span: diag.Span,
-    /// What it was given, when that is a value the host gives: see
-    /// `host.zig`.
-    host: ?@import("host.zig").Host = null,
 };
 
 pub const Upval = struct {
@@ -63,6 +60,14 @@ pub const Defer = struct {
     on_error: bool,
 };
 
+/// A constant's type a condition narrowed, and what to put back: see
+/// `control.narrow`.
+pub const Narrowed = struct {
+    place: union(enum) { local: usize, upval: u8 },
+    was: Type,
+    depth: u32,
+};
+
 comp: *Compiler,
 parent: ?*Func,
 name: []const u8,
@@ -75,6 +80,7 @@ caches: u32 = 0,
 locals: std.ArrayList(Local) = .empty,
 loops: std.ArrayList(Loop) = .empty,
 defers: std.ArrayList(Defer) = .empty,
+narrowed: std.ArrayList(Narrowed) = .empty,
 depth: u32 = 0,
 free: u8 = 0,
 max: u8 = 1,
@@ -122,6 +128,7 @@ pub fn deinit(f: *Func) void {
     }
     f.loops.deinit(a);
     f.defers.deinit(a);
+    f.narrowed.deinit(a);
     f.param_types.deinit(a);
     f.param_names.deinit(a);
 }
@@ -289,6 +296,7 @@ pub fn enter(f: *Func) void {
 /// Ends a scope: its locals go, their registers free up, and any a closure
 /// captured are closed so the closure keeps its own copy.
 pub fn leave(f: *Func) Error!void {
+    f.unnarrow(f.narrowedAt(f.depth));
     var lowest: ?u8 = null;
     var captured = false;
     while (f.locals.items.len > 0 and f.locals.items[f.locals.items.len - 1].depth >= f.depth) {
@@ -300,6 +308,24 @@ pub fn leave(f: *Func) Error!void {
     if (captured) try f.abc(.close, lowest.?, 0, 0);
     if (lowest) |r| f.release(@min(r, f.free));
     f.depth -= 1;
+}
+
+/// How many narrowings were made before scope `depth`.
+fn narrowedAt(f: *const Func, depth: u32) usize {
+    var n = f.narrowed.items.len;
+    while (n > 0 and f.narrowed.items[n - 1].depth >= depth) n -= 1;
+    return n;
+}
+
+/// Puts back the types narrowed since there were `mark` narrowings.
+pub fn unnarrow(f: *Func, mark: usize) void {
+    while (f.narrowed.items.len > mark) {
+        const n = f.narrowed.pop().?;
+        switch (n.place) {
+            .local => |i| f.locals.items[i].type = n.was,
+            .upval => |u| f.upvals.items[u].type = n.was,
+        }
+    }
 }
 
 pub fn warnUnused(f: *Func, l: Local) void {

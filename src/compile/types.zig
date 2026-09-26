@@ -6,6 +6,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const reflect = @import("fluxion_reflect");
 const object = @import("../vm/object.zig");
 const rt = @import("../vm/types.zig");
 const diag = @import("../diag.zig");
@@ -39,9 +40,11 @@ pub const Param = struct {
     type: Type,
     has_default: bool,
     /// For a host's method: what it is left out as, `1.0`, and what it takes
-    /// written as the host's type, where the compiler's says less.
+    /// written, where its type says less.
     default_text: ?[]const u8 = null,
     type_text: ?[]const u8 = null,
+    /// A type the script names, `Sprite`: see `host.zig`.
+    type_arg: bool = false,
 };
 
 pub const Signature = struct {
@@ -49,9 +52,6 @@ pub const Signature = struct {
     ret: Type,
     has_self: bool = false,
     coroutine: bool = false,
-    /// For a host's method: what it gives back, written as the host's type;
-    /// empty for nothing.
-    ret_text: ?[]const u8 = null,
 
     pub fn required(s: *const Signature) usize {
         var n: usize = 0;
@@ -75,8 +75,6 @@ pub const Field = struct {
     /// Given by the host to every struct, with what the host said of it.
     host: bool = false,
     doc: ?[]const u8 = null,
-    /// The host's type of what a host's member holds, when the host said.
-    host_type: ?*const @import("fluxion_reflect").Type = null,
 };
 
 pub const Method = struct {
@@ -188,6 +186,8 @@ pub const Info = union(enum) {
     module: *Module,
     /// A type named where a value goes: `Player` in `Player.init()`.
     meta: Type,
+    /// One of the host's types: see `host.zig`.
+    host: *const reflect.Type,
 };
 
 pub const Pool = struct {
@@ -225,6 +225,7 @@ pub const Pool = struct {
             .@"enum" => |x| b == .@"enum" and b.@"enum" == x,
             .module => |x| b == .module and b.module == x,
             .function => |x| b == .function and sameSignature(x, b.function),
+            .host => |x| b == .host and b.host.same(x),
         };
     }
 
@@ -268,6 +269,15 @@ pub const Pool = struct {
 
     pub fn meta(p: *Pool, t: Type) Allocator.Error!Type {
         return p.intern(.{ .meta = t });
+    }
+
+    pub fn host(p: *Pool, t: *const reflect.Type) Allocator.Error!Type {
+        return p.intern(.{ .host = t });
+    }
+
+    pub fn hostOf(p: *const Pool, t: Type) ?*const reflect.Type {
+        const i = p.info(t) orelse return null;
+        return if (i == .host) i.host else null;
     }
 
     pub fn isOptional(p: *const Pool, t: Type) ?Type {
@@ -371,6 +381,7 @@ pub const Pool = struct {
                     try w.writeAll("type ");
                     try p.write(x, w);
                 },
+                .host => |host_type| try w.writeAll(@import("../reflect.zig").nameOf(host_type)),
             },
         }
     }
@@ -406,6 +417,7 @@ pub const Pool = struct {
                 .@"struct" => |s| try checks.add(gpa, .{ .class = s.class }),
                 .@"enum" => |e| try checks.add(gpa, .{ .enum_type = e.type_obj }),
                 .module, .meta => .any,
+                .host => |host_type| try checks.add(gpa, .{ .host = host_type }),
             },
         };
     }

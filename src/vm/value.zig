@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 const std = @import("std");
+const reflect = @import("fluxion_reflect");
 const object = @import("object.zig");
 const Obj = object.Obj;
 
@@ -14,6 +15,9 @@ pub const Tag = enum(u32) {
     enum_value,
     /// A module variable whose initializer has not run yet.
     undefined,
+    /// One of the host's types, named where a value goes: `Sprite` in
+    /// `entity.get(Sprite)`. It points at the type, which the host keeps.
+    host_type,
     string,
     list,
     map,
@@ -79,6 +83,15 @@ pub const Value = extern struct {
 
     pub inline fn enumValue(type_obj: *Obj, index: u32) Value {
         return .{ .raw = @intFromPtr(type_obj), .extra = index, .tag = .enum_value };
+    }
+
+    pub inline fn hostType(t: *const reflect.Type) Value {
+        return .{ .raw = @intFromPtr(t), .extra = 0, .tag = .host_type };
+    }
+
+    pub inline fn asHostType(v: Value) *const reflect.Type {
+        std.debug.assert(v.tag == .host_type);
+        return @ptrFromInt(@as(usize, @intCast(v.raw)));
     }
 
     pub inline fn is(v: Value, tag: Tag) bool {

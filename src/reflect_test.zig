@@ -21,6 +21,7 @@ const Player = struct {
     target: ?u32 = null,
     stats: Stats = .{},
 
+    pub const reflect_attributes = .{@import("reflect.zig").GivesErrors{}};
     pub const reflect_methods = .{ .heal, .moveBy, .ratio };
 
     pub fn heal(self: *Player, amount: i32) i32 {
@@ -45,7 +46,7 @@ const script =
     \\    p.hp -= 3;
     \\    p.pos = vec2(1, 2);
     \\    p.pos.x += 10;
-    \\    p.mode = "run";
+    \\    p.mode = Mode.run;
     \\    p.target = 7;
     \\    p.stats.xp = 250;
     \\    print(p.heal(5), p.ratio(4), p.ratio(0));
@@ -71,12 +72,13 @@ test "a Zig struct read, written and called from a script" {
     defer out.deinit();
     const vm = try Vm.create(testing.allocator, .{ .out = &out.writer });
     defer vm.destroy();
+    try vm.declareType(reflect.typeOf(Mode));
     const m = try load(vm);
     var player: Player = .{};
     const h = try vm.handle(&player);
     _ = try vm.callName(m, "update", &.{h});
     try testing.expectEqualStrings(
-        \\ada 10 1.5 (0.0, 0.0) idle null 1
+        \\ada 10 1.5 (0.0, 0.0) Mode.idle null 1
         \\12 3.0 error.DivideByZero
         \\
     , out.written());
@@ -115,27 +117,31 @@ test "a tagged union's empty arm goes and comes by its name" {
     defer out.deinit();
     const vm = try Vm.create(testing.allocator, .{ .out = &out.writer });
     defer vm.destroy();
+    try vm.declareType(reflect.typeOf(Screen));
+    try vm.declareType(reflect.typeOf(Fill));
     const m = try vm.load("fill.flux",
-        \\fn go(s) {
+        \\fn go(s: Screen) {
         \\    print(s.fill, s.filled());
-        \\    s.setFill("borderless");
-        \\    print(s.filled());
-        \\    s.fill = "windowed";
+        \\    s.setFill(.borderless);
+        \\    print(s.filled() == .borderless);
+        \\    s.fill = .windowed;
         \\}
-        \\fn full(s) { s.setFill("exclusive"); }
-        \\fn wrong(s) { s.setFill("sideways"); }
     );
     var screen: Screen = .{};
     const h = try vm.handle(&screen);
     _ = try vm.callName(m, "go", &.{h});
-    try testing.expectEqualStrings("windowed windowed\nborderless\n", out.written());
+    try testing.expectEqualStrings("Fill.windowed Fill.windowed\ntrue\n", out.written());
     try testing.expectEqual(Fill.windowed, screen.fill);
 
-    try testing.expectError(error.Panic, vm.callName(m, "full", &.{h}));
-    try testing.expect(std.mem.indexOf(u8, vm.panic.?.message, "exclusive holds a u32") != null);
-    vm.clearPanic();
-    try testing.expectError(error.Panic, vm.callName(m, "wrong", &.{h}));
-    try testing.expect(std.mem.indexOf(u8, vm.panic.?.message, "has no arm \"sideways\"") != null);
+    var diagnostics: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer diagnostics.deinit();
+    try testing.expectError(error.CompileFailed, vm.load("wrong.flux",
+        \\fn full(s: Screen) { s.setFill(.exclusive); }
+        \\fn wrong(s: Screen) { s.setFill(.sideways); }
+    ));
+    try vm.writeDiagnostics(&diagnostics.writer, .{});
+    try testing.expect(std.mem.indexOf(u8, diagnostics.written(), "`Fill.exclusive` holds a u32") != null);
+    try testing.expect(std.mem.indexOf(u8, diagnostics.written(), "`Fill` has no arm `sideways`") != null);
 }
 
 test "a handle the script owns is freed with it" {
@@ -255,6 +261,11 @@ test "a live handle, and what is reached through it, follow a value that moves" 
 /// An engine signal's argument: no defaults, so it cannot be made fresh.
 const Hit = struct { damage: f32, at: Vec2, mode: Mode };
 
+/// The name of the enum's member `v` is.
+fn memberName(v: Value) []const u8 {
+    return object.EnumType.from(v.obj()).members[v.extra].bytes();
+}
+
 test "a host's value handed to a script as the script's own" {
     const vm = try Vm.create(testing.allocator, .{ .gc = .{ .stress = true, .verify = true } });
     defer vm.destroy();
@@ -271,7 +282,7 @@ test "a host's value handed to a script as the script's own" {
     var n: i32 = 7;
     try testing.expectEqual(@as(i64, 7), (try vm.valueOf(.of(&n))).asInt());
     var mode: Mode = .run;
-    try testing.expectEqualStrings("run", (try vm.valueOf(.of(&mode))).as(object.String).bytes());
+    try testing.expectEqualStrings("run", memberName(try vm.valueOf(.of(&mode))));
     var name: []const u8 = "ada";
     try testing.expectEqualStrings("ada", (try vm.valueOf(.of(&name))).as(object.String).bytes());
     var maybe: ?i32 = null;
@@ -289,7 +300,7 @@ test "a host's value handed to a script as the script's own" {
     testing.allocator.destroy(hit);
     try testing.expectEqual(@as(f64, 12.5), (try vm.callName(m, "damage", &.{h})).asFloat());
     try testing.expectEqual([2]f32{ 3, 4 }, (try vm.callName(m, "at", &.{h})).asVec2());
-    try testing.expectEqualStrings("dead", (try vm.callName(m, "mode", &.{h})).as(object.String).bytes());
+    try testing.expectEqualStrings("dead", memberName(try vm.callName(m, "mode", &.{h})));
 
     // A slice is a list of its elements.
     const numbers = [_]i32{ 1, 2, 3 };

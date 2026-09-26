@@ -277,6 +277,8 @@ pub fn main(init: std.process.Init) !void {
     var drawn: u32 = 0;
     var title_for: u64 = std.math.maxInt(u64);
 
+    // The code has the keyboard until something else is pressed.
+    panels.code_view.focus(&ui);
     while (!win.shouldClose()) {
         // Sleep until something happens, unless something is moving.
         const busy = runner.running or editor.hover.offset != null or editor.drag != .none or state.dragging or drawn < 2 or demo != null;
@@ -304,7 +306,7 @@ pub fn main(init: std.process.Init) !void {
                 // AltGr, which types `{`, `[`, `@` on many keyboards.
                 if (c.mods.control and !c.mods.alt) continue;
                 // The find bar's field, while it has the keys.
-                if (ui.wantsKeyboard()) {
+                if (ui.wantsKeyboard() and !panels.code_view.hasKeys(&ui)) {
                     var utf8: [4]u8 = undefined;
                     const n = std.unicode.utf8Encode(c.codepoint, &utf8) catch continue;
                     ui.typeText(utf8[0..n]);
@@ -316,7 +318,7 @@ pub fn main(init: std.process.Init) !void {
                 mods = k.mods;
                 const ctrl = k.mods.control and !k.mods.alt;
                 const letter = if (k.virtual != .unknown) k.virtual else k.key;
-                if (ui.wantsKeyboard() and fieldKey(&ui, &editor, k, ctrl, letter)) {
+                if (ui.wantsKeyboard() and !panels.code_view.hasKeys(&ui) and fieldKey(&ui, &editor, k, ctrl, letter)) {
                     // Taken by the find bar's field.
                 } else if (k.key == .f5) {
                     try runScript(&runner, &editor);

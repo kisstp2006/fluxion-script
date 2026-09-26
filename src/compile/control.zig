@@ -29,6 +29,77 @@ fn smallInt(e: *const ast.Expr) ?i8 {
     };
 }
 
+/// What `cond` being `when` says of the types of constants, made so until
+/// `f.unnarrow` is given what this returns: `x is T` true, `x` is a `T`;
+/// `!c` says the reverse of `c`; `a and b` true says what each does, `a or
+/// b` false too. Only a constant is narrowed - a parameter, a `const`, a
+/// capture - as nothing can give it another value, and only to a type a
+/// value is checked for exactly.
+pub fn narrow(f: *Func, cond: *const ast.Expr, when: bool) Error!usize {
+    const mark = f.narrowed.items.len;
+    try facts(f, cond, when);
+    return mark;
+}
+
+fn facts(f: *Func, e: *const ast.Expr, when: bool) Error!void {
+    switch (e.kind) {
+        .unary => |u| if (u.op == .not) try facts(f, u.operand, !when),
+        .binary => |b| switch (b.op) {
+            .@"and" => if (when) {
+                try facts(f, b.lhs, true);
+                try facts(f, b.rhs, true);
+            },
+            .@"or" => if (!when) {
+                try facts(f, b.lhs, false);
+                try facts(f, b.rhs, false);
+            },
+            else => {},
+        },
+        .is_type => |x| if (when and x.value.kind == .ident) {
+            const c = f.comp;
+            // Resolved again: not recorded twice.
+            const recorder = c.recorder;
+            c.recorder = null;
+            defer c.recorder = recorder;
+            const t = try @import("resolve.zig").typeExpr(c, x.type);
+            if (exact(c, t)) try narrowName(f, x.value.kind.ident, t);
+        },
+        else => {},
+    }
+}
+
+/// Whether `is T` tells a value is a `T` and nothing else: not for a float,
+/// which an int passes too.
+fn exact(c: *Compiler, t: Type) bool {
+    return switch (t) {
+        .int, .bool, .string, .vec2, .vec3, .color, .@"error", .task, .signal => true,
+        else => c.pool.structOf(t) != null or c.pool.enumOf(t) != null or c.pool.hostOf(t) != null or c.pool.listOf(t) != null or c.pool.mapOf(t) != null,
+    };
+}
+
+fn narrowName(f: *Func, name: []const u8, t: Type) Error!void {
+    const c = f.comp;
+    if (f.findLocal(name)) |l| {
+        if (!l.is_const or !narrower(c, t, l.type)) return;
+        const i = (@intFromPtr(l) - @intFromPtr(f.locals.items.ptr)) / @sizeOf(Func.Local);
+        try f.narrowed.append(c.gpa, .{ .place = .{ .local = i }, .was = l.type, .depth = f.depth });
+        l.type = t;
+        return;
+    }
+    const u = (try f.findUpval(name)) orelse return;
+    const up = &f.upvals.items[u];
+    if (!up.is_const or !narrower(c, t, up.type)) return;
+    try f.narrowed.append(c.gpa, .{ .place = .{ .upval = u }, .was = up.type, .depth = f.depth });
+    up.type = t;
+}
+
+/// Whether a value of type `was` found to be a `t` is better known as one.
+fn narrower(c: *Compiler, t: Type, was: Type) bool {
+    if (Compiler.dynamic(was)) return true;
+    const inner = c.pool.isOptional(was) orelse was;
+    return t != inner and binary.compatible(c, t, inner);
+}
+
 /// Code that jumps when `e` is `when`, the jumps added to `out`.
 pub fn jumpIf(f: *Func, e: *const ast.Expr, when: bool, out: *Jumps) Error!void {
     const c = f.comp;
@@ -46,12 +117,16 @@ pub fn jumpIf(f: *Func, e: *const ast.Expr, when: bool, out: *Jumps) Error!void 
                 const joins = (b.op == .@"and") != when;
                 if (joins) {
                     try jumpIf(f, b.lhs, when, out);
+                    const narrowed = try narrow(f, b.lhs, b.op == .@"and");
                     try jumpIf(f, b.rhs, when, out);
+                    f.unnarrow(narrowed);
                 } else {
                     var skip: Jumps = .empty;
                     defer skip.deinit(c.gpa);
                     try jumpIf(f, b.lhs, !when, &skip);
+                    const narrowed = try narrow(f, b.lhs, b.op == .@"and");
                     try jumpIf(f, b.rhs, when, out);
+                    f.unnarrow(narrowed);
                     try f.patchAll(skip.items, f.here());
                 }
                 return;
@@ -175,7 +250,9 @@ pub fn ifExpr(f: *Func, e: *const ast.Expr, dst: ?u8, expected: Type) Error!Oper
         try f.leave();
     } else {
         try jumpIf(f, x.cond, false, &skip);
+        const narrowed = try narrow(f, x.cond, true);
         const then = if (concrete(expected)) try expr.typedInto(f, x.then, out, expected, "the value") else try expr.into(f, x.then, out, .unknown);
+        f.unnarrow(narrowed);
         then_type = then.type;
     }
     const end = try f.jumpForward(.jmp, 0, 0);
@@ -184,7 +261,9 @@ pub fn ifExpr(f: *Func, e: *const ast.Expr, dst: ?u8, expected: Type) Error!Oper
     // does not make what follows unreachable.
     const then_reachable = f.reachable;
     f.reachable = reachable;
+    const narrowed = if (x.capture == null) try narrow(f, x.cond, false) else f.narrowed.items.len;
     const otherwise = if (concrete(expected)) try expr.typedInto(f, x.@"else", out, expected, "the value") else try expr.into(f, x.@"else", out, .unknown);
+    f.unnarrow(narrowed);
     f.reachable = f.reachable or then_reachable;
     try f.patchHere(end);
     f.release(@max(mark, out + 1));

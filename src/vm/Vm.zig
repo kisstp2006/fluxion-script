@@ -64,19 +64,63 @@ pub const Options = struct {
     /// whose words the host keeps beside it. True when the host took it,
     /// false for the usual "has no field" panic.
     host_set_member: ?*const fn (vm: *Vm, handle: Value, name: []const u8, value: Value) Error!bool = null,
-    /// What a call of one of the host's methods that gives back a
-    /// `flux.Value` gives, for the compiler to know its members by: an
-    /// engine's `entity.get("Timer")` is the Timer. See `HostResult`.
-    host_result: ?HostResult = null,
+    /// What the host says of the members of its types, for an editor to
+    /// show: see `Doc`.
+    docs: []const Doc = &.{},
 };
 
-/// Asked by the compiler for the host's type of what `receiver.method(...)`
-/// gives back, given the arguments that are strings written out - null for
-/// the others. Null when the host cannot say; the result is then `any`, with
-/// nothing known of it.
-pub const HostResult = struct {
-    context: ?*anyopaque = null,
-    run: *const fn (context: ?*anyopaque, receiver: *const reflect.Type, method: []const u8, strings: []const ?[]const u8) ?*const reflect.Type,
+/// What the host says of a member of one of its types, keyed
+/// `"Type.member"` by the type's name as a script writes it. The list is
+/// sorted by key; a member's `attr.Doc`, where it has one, is said first.
+pub const Doc = struct { key: []const u8, text: []const u8 };
+
+/// A method the host calls on a script's instances: an engine's `update`.
+/// A struct's method of the name is checked against it as it is compiled -
+/// what it takes - and a parameter it does not give a type is given the
+/// hook's. The host's text: it lives as long as the VM.
+pub const Hook = struct {
+    name: []const u8,
+    /// What the host passes it, `self` aside.
+    params: []const Param = &.{},
+    doc: ?[]const u8 = null,
+
+    pub const Param = struct { name: []const u8, type: *const reflect.Type };
+};
+
+/// An annotation of a field's the host reads - an engine's
+/// `@range(0, 100)` - for an editor to offer and explain. The host's text.
+pub const Annotation = struct {
+    name: []const u8,
+    /// How it is written: `@range(min, max, step)`.
+    sig: []const u8,
+    doc: []const u8,
+};
+
+/// A member of one of the host's values its type does not list - a
+/// component's signal, the words it keeps beside it - declared for the
+/// compiler to know and an editor to offer: see `declareMember`. The host
+/// finds it as the script runs, through `Options.host_member`. The host's
+/// text.
+pub const DeclaredMember = struct {
+    of: *const reflect.Type,
+    name: []const u8,
+    /// What it is, when it is one of the language's own types; null for
+    /// `any`.
+    type: ?BuiltinType = null,
+    /// Whether a script may write it, through `Options.host_set_member`.
+    writable: bool = false,
+    doc: ?[]const u8 = null,
+};
+
+/// The methods of one of the host's types, `by`, whose first argument is a
+/// value of another, `of`, made methods of `of`'s values: `app.childCount(e)`
+/// as `e.childCount()`. See `extend`.
+pub const Extension = struct {
+    of: *const reflect.Type,
+    by: *const reflect.Type,
+    /// The value of `by` they are called on; null where scripts are only
+    /// compiled.
+    receiver: Value,
 };
 
 /// One of the host's types as a script sees it. Asked first whenever a
@@ -90,6 +134,10 @@ pub const HostType = struct {
     /// entities by: what the compiler knows its members by. Null when it is
     /// none of the host's types, such as a path.
     script: ?*const reflect.Type = null,
+    /// What a value of `type` is to a script when it is one of the
+    /// language's own - a path's string, a colour - for the compiler to
+    /// know it by. Null, and not `script`: `any`.
+    given: ?BuiltinType = null,
     /// The value as the script's. `vm.host` is the host's, to find its
     /// own things by.
     to_script: *const fn (vm: *Vm, value: reflect.Value) Error!Value,
@@ -137,6 +185,19 @@ host_members: std.ArrayList(HostMember) = .empty,
 host_docs: std.StringHashMapUnmanaged([]u8) = .empty,
 /// The host's types of the globals `declareGlobal` declared.
 global_types: std.StringHashMapUnmanaged(*const reflect.Type) = .empty,
+/// The host's types a script names, by their names: see `declareType`.
+named_types: std.StringArrayHashMapUnmanaged(*const reflect.Type) = .empty,
+/// The host's enums as scripts have them, made as they are first met.
+host_enums: std.ArrayList(*object.EnumType) = .empty,
+extensions: std.ArrayList(*Extension) = .empty,
+/// One native for each method an extension gives, as `reflect_methods`.
+extension_methods: std.AutoHashMapUnmanaged(*const reflect.Method, *object.Native) = .empty,
+hooks: std.ArrayList(Hook) = .empty,
+annotations: std.ArrayList(Annotation) = .empty,
+members: std.ArrayList(DeclaredMember) = .empty,
+/// The host's types whose values have members only the host knows, found
+/// as the script runs: see `declareOpen`.
+open_types: std.ArrayList(*const reflect.Type) = .empty,
 native_modules: std.StringHashMapUnmanaged(*object.Module) = .empty,
 methods: std.EnumArray(BuiltinType, std.AutoHashMapUnmanaged(*object.String, Value)),
 main: Fiber,
@@ -237,6 +298,13 @@ pub const ReloadError = api.ReloadError;
 pub const declareHostMember = api.declareHostMember;
 pub const declareHostMemberOf = api.declareHostMemberOf;
 pub const declareGlobal = api.declareGlobal;
+pub const declareType = api.declareType;
+pub const declareHook = api.declareHook;
+pub const declareAnnotation = api.declareAnnotation;
+pub const extend = api.extend;
+pub const declareMember = api.declareMember;
+pub const declareOpen = api.declareOpen;
+pub const hookNamed = api.hookNamed;
 pub const defineGlobal = api.defineGlobal;
 pub const handleOf = api.handleOf;
 pub const liveHandle = api.liveHandle;
@@ -321,6 +389,15 @@ pub fn destroy(vm: *Vm) void {
     vm.host_members.deinit(gpa);
     // Its names are the docs' own, freed with them.
     vm.global_types.deinit(gpa);
+    vm.named_types.deinit(gpa);
+    vm.host_enums.deinit(gpa);
+    for (vm.extensions.items) |e| gpa.destroy(e);
+    vm.extensions.deinit(gpa);
+    vm.extension_methods.deinit(gpa);
+    vm.hooks.deinit(gpa);
+    vm.annotations.deinit(gpa);
+    vm.members.deinit(gpa);
+    vm.open_types.deinit(gpa);
     var docs = vm.host_docs.iterator();
     while (docs.next()) |e| {
         gpa.free(e.key_ptr.*);
