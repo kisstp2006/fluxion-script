@@ -139,8 +139,9 @@ pub const HostType = struct {
     /// know it by. Null, and not `script`: `any`.
     given: ?BuiltinType = null,
     /// Whether it may be none, which a script writes as null: an entity. A
-    /// parameter or a field of the type takes null then; what a call gives
-    /// back is known as the type, and is null where the host says none.
+    /// parameter or a field of the type is optional to the compiler then,
+    /// and so is what a method gives back - but for a method that can fail,
+    /// which fails rather than give none.
     nullable: bool = false,
     /// The value as the script's. `vm.host` is the host's, to find its
     /// own things by.

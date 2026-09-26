@@ -339,7 +339,9 @@ method gives them defaults (`attr.defaults`) - and of what types.
   `reflect_attributes` - are values the script catches instead, and the
   method's result is `!T`: `files.readText(path) catch ""`.
 - **None**: a converted type that may be none - an entity - says so with
-  `HostType.nullable`, and a parameter or a field of it takes null.
+  `HostType.nullable`. A parameter or a field of it is optional then, and so
+  is what a method gives back - `app.parentOf(e) == null` - unless the
+  method can fail, as a spawn can: it fails rather than give none.
 - **Another type's methods**: `vm.extend(of, by, receiver)` gives the
   values of `of` every method of `receiver` - a handle of `by` - whose first
   argument a script gives is one of `of`: `app.childCount(e)` as

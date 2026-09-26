@@ -126,18 +126,20 @@ pub fn named(vm: *Vm, name: []const u8) Allocator.Error!?Type {
 /// What a method gives back. A `flux.Value` is the type it was given, when
 /// it was given one. An error a script cannot catch - the VM stopping it -
 /// is no error to it, nor is one of a method whose errors stop the script
-/// (see `bridge.GivesErrors`).
+/// (see `bridge.GivesErrors`). A type that may be none (`HostType.nullable`)
+/// may be null, but from a method that can fail: that one fails instead.
 pub fn resultType(vm: *Vm, m: *const reflect.Method, owner: *const reflect.Type, given: ?Type) Allocator.Error!Type {
     const p = pool(vm);
     var ret = m.type.info.function.return_type;
+    const fails = ret.kind == .error_union;
     var catchable = false;
-    if (ret.kind == .error_union) {
+    if (fails) {
         catchable = bridge.givesErrors(m, owner) and !onlyStops(ret.info.error_union.error_set);
         ret = ret.info.error_union.payload;
     }
     const optional = ret.kind == .optional and ret.child().?.is(Value);
     if (!ret.is(Value) and !optional) {
-        const t = try typeOf(vm, ret);
+        const t = try if (fails) typeOf(vm, ret) else takenType(vm, ret);
         return if (catchable) p.errorUnion(t) else t;
     }
     // A `flux.Value`: the type given, or the one the method says it gives.
@@ -255,7 +257,7 @@ pub fn eachMember(vm: *const Vm, t: *const reflect.Type, context: anytype, each:
 /// The type of a field or a declared member.
 pub fn memberType(vm: *Vm, found: Member) Allocator.Error!Type {
     return switch (found) {
-        .field => |f| typeOf(vm, f.field.type),
+        .field => |f| takenType(vm, f.field.type),
         .declared => |d| if (d.type) |b| builtin(b) else .any,
         .method => .any,
     };

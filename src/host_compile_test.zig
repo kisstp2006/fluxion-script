@@ -27,6 +27,7 @@ const Deck = struct {
     state: u8 = 0,
     pace: Pace = .slow,
     cut: Cut = .none,
+    seat: Seat = .none,
 
     /// Named by a script only as `deck.pace` wants it: `Card` has a `Pace`
     /// too.
@@ -46,7 +47,20 @@ const Deck = struct {
         .find = .{reflect.attr.Params{ .names = &.{ "vm", "kind" } }},
         .setMode = .{reflect.attr.Params{ .names = &.{"mode"} }},
         .load = .{reflect.attr.Params{ .names = &.{"path"} }},
+        .seatOf = .{},
+        .takeSeat = .{},
     };
+
+    /// The seat it has, or none.
+    pub fn seatOf(self: *const Deck) Seat {
+        return self.seat;
+    }
+
+    /// A seat of its own, or it fails: never none.
+    pub fn takeSeat(self: *Deck) error{Full}!Seat {
+        if (self.count > 10) return error.Full;
+        return .{ .number = 1 };
+    }
 
     pub fn play(self: *Deck, name: []const u8, speed: f32, from_end: bool) void {
         _ = name;
@@ -377,6 +391,20 @@ test "the choices a declared type's values take are named with it, but for a nam
         \\}
     , &.{});
     try expectMessages(a, "var pace: Pace = .fast;", &.{ "`Pace` is not a type", "which enum is `.fast` a member of?" });
+}
+
+test "what may be none is optional to a script, but what a method that can fail gives" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try expectMessages(a,
+        \\fn seats() int {
+        \\    if (deck.seat == null or deck.seatOf() == null) return 0;
+        \\    deck.seat = null;
+        \\    return deck.takeSeat() + deck.seatOf().?;
+        \\}
+    , &.{});
+    try expectMessages(a, "fn f() int { return deck.seatOf(); }", &.{"the return value must be int, but this may be null"});
 }
 
 test "a method given a type gives a value of it" {
