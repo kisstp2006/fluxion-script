@@ -357,6 +357,47 @@ pub fn runDefers(f: *Func, depth: u32, failing: bool) Error!void {
     f.reachable = saved_reachable;
 }
 
+/// Whether `f` gives its caller errors: what `try` passes on to.
+fn passesErrors(f: *Func) bool {
+    const c = f.comp;
+    return Compiler.dynamic(f.ret) or f.ret == .@"error" or c.pool.isErrorUnion(f.ret) != null;
+}
+
+/// A value that may be an error, `v`, where only its value will do and
+/// nothing handles it: handled for the script as `Options.unhandled_errors`
+/// says - passed on, as `try` passes it, where `f` gives errors, and
+/// elsewhere the script stopped if it is one - and said as a warning with
+/// `warn`. Its value, in a register of its own; null with `strict`, for the
+/// caller to refuse it as it did.
+pub fn implicitTry(f: *Func, v: Operand, span: diag.Span) Error!?Operand {
+    const c = f.comp;
+    const strictness = c.vm.options.unhandled_errors;
+    if (strictness == .strict) return null;
+    const payload = c.pool.isErrorUnion(v.type) orelse return null;
+    const passes = passesErrors(f);
+    if (strictness == .warn) {
+        _ = try (try (try c.warn(span, "this may be an error, and nothing handles it", .{}))
+            .text("{s}", .{if (passes) "an error is passed on" else "the script stops on an error"}))
+            .help("handle it with `catch`, pass it on with `try`, or drop it with `_ = ...`", .{});
+    }
+    const out = try binary.owned(f, v);
+    if (passes) {
+        const ok = try f.jumpForward(.jnoterr, out.reg, 0);
+        try runDefers(f, 0, true);
+        try f.abc(.ret, out.reg, 0, 0);
+        try f.patchHere(ok);
+    } else {
+        try f.abc(.unwrap, out.reg, out.reg, 1);
+    }
+    return .{ .reg = out.reg, .type = payload, .temp = out.temp };
+}
+
+/// `v`, unless it may be an error that `implicitTry` handles: then its value.
+pub fn unlessError(f: *Func, v: Operand, span: diag.Span) Error!Operand {
+    if (f.comp.pool.isErrorUnion(v.type) == null) return v;
+    return (try implicitTry(f, v, span)) orelse v;
+}
+
 fn hasErrdefer(f: *Func) bool {
     for (f.defers.items) |d| if (d.on_error) return true;
     return false;
@@ -375,9 +416,18 @@ pub fn tryExpr(f: *Func, x: *const ast.Expr, span: diag.Span, dst: ?u8) Error!Op
         }
         break :blk v.type;
     };
-    if (!(Compiler.dynamic(f.ret) or f.ret == .@"error" or c.pool.isErrorUnion(f.ret) != null)) {
-        _ = try (try c.err(span, "`try` passes an error on to the caller, but this function returns {s}", .{c.typeName(f.ret)}))
-            .help("make the return type `!{s}`, or handle the error here with `catch`", .{c.typeName(f.ret)});
+    if (!passesErrors(f)) {
+        switch (c.vm.options.unhandled_errors) {
+            .strict => _ = try (try c.err(span, "`try` passes an error on to the caller, but this function returns {s}", .{c.typeName(f.ret)}))
+                .help("make the return type `!{s}`, or handle the error here with `catch`", .{c.typeName(f.ret)}),
+            .warn => _ = try (try c.warn(span, "`try` here stops the script on an error: this function returns {s}", .{c.typeName(f.ret)}))
+                .help("make the return type `!{s}` to pass it on, or handle it with `catch`", .{c.typeName(f.ret)}),
+            .quiet => {},
+        }
+        // There is no caller to pass it to: the script stops.
+        try f.abc(.unwrap, out, out, 1);
+        f.release(@max(mark, out + 1));
+        return .{ .reg = out, .type = payload, .temp = dst == null };
     }
     const ok = try f.jumpForward(.jnoterr, out, 0);
     try runDefers(f, 0, true);

@@ -15,6 +15,7 @@ const Type = types.Type;
 const Func = @import("Func.zig");
 const Compiler = @import("Compiler.zig");
 const expr = @import("expr.zig");
+const control = @import("control.zig");
 const Operand = expr.Operand;
 const Error = Compiler.Error;
 
@@ -62,6 +63,9 @@ pub fn coerce(f: *Func, op: Operand, to: Type, span: diag.Span, what: []const u8
         }
     }
     if (compatible(c, from, to)) return .{ .reg = op.reg, .type = to, .temp = op.temp };
+    if (pool.isErrorUnion(from)) |child| if (compatible(c, child, to)) {
+        if (try control.implicitTry(f, op, span)) |value| return coerce(f, value, to, span, what);
+    };
     try mismatch(f, from, to, span, what);
     return .{ .reg = op.reg, .type = .unknown, .temp = op.temp };
 }
@@ -260,6 +264,10 @@ pub fn apply(f: *Func, op_kind: ast.BinaryOp, l: Operand, rhs: *const ast.Expr, 
     }
     var r = try expr.compile(f, rhs, null, if (l.type == .float) .float else .unknown);
     var left = l;
+    if (arithmeticType(c, op_kind, left.type, r.type) == null) {
+        left = try control.unlessError(f, left, span);
+        r = try control.unlessError(f, r, rhs.span);
+    }
     const t = arithmeticType(c, op_kind, left.type, r.type) orelse {
         try cannot(f, op_kind, span, rhs.span, left.type, r.type);
         return .{ .reg = try result(f, dst, mark), .type = .unknown, .temp = dst == null };
@@ -382,6 +390,10 @@ fn comparison(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     const mark = f.free;
     var l = try expr.compile(f, b.lhs, null, .unknown);
     var r = try expr.compile(f, b.rhs, null, l.type);
+    if (!comparable(c, l.type, r.type, b.op)) {
+        l = try control.unlessError(f, l, b.lhs.span);
+        r = try control.unlessError(f, r, b.rhs.span);
+    }
     if (!comparable(c, l.type, r.type, b.op)) {
         const h = try c.err(e.span, "cannot compare {s} with {s}", .{ c.typeName(l.type), c.typeName(r.type) });
         if (b.op == .eq or b.op == .ne) _ = try h.note("values of different types are never equal", .{});

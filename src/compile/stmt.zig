@@ -39,7 +39,7 @@ pub fn compile(f: *Func, s: *const ast.Stmt) Error!void {
     switch (s.kind) {
         .expr => |e| {
             const v = try expr.compile(f, e, null, .unknown);
-            if (c.pool.isErrorUnion(v.type) != null) {
+            if (c.pool.isErrorUnion(v.type) != null and try control.implicitTry(f, v, e.span) == null) {
                 _ = try (try (try c.err(e.span, "the error this may give is ignored", .{}))
                     .text("this is {s}", .{c.typeName(v.type)}))
                     .help("pass it on with `try`, handle it with `catch`, or drop it with `_ = ...`", .{});
@@ -418,7 +418,11 @@ fn forStmt(f: *Func, x: anytype) Error!void {
         return;
     }
     const regs = try f.allocN(4);
-    const it = try expr.into(f, x.iterable, regs, .unknown);
+    var it = try expr.into(f, x.iterable, regs, .unknown);
+    if (c.pool.isErrorUnion(it.type) != null) if (try control.implicitTry(f, it, x.iterable.span)) |value| {
+        if (value.reg != regs) try f.abc(.move, regs, value.reg, 0);
+        it = .{ .reg = regs, .type = value.type, .temp = false };
+    };
     var item: Type = .any;
     var second: Type = .int;
     if (c.pool.listOf(it.type)) |e| {

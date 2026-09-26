@@ -67,7 +67,21 @@ pub const Options = struct {
     /// What the host says of the members of its types, for an editor to
     /// show: see `Doc`.
     docs: []const Doc = &.{},
+    /// What the compiler makes of a value that may be an error where only
+    /// its value will do, with nothing - no `try`, no `catch` - to handle it.
+    /// See `Unhandled`.
+    unhandled_errors: Unhandled = .strict,
 };
+
+/// How strict the compiler is with an error nothing handles.
+///
+/// `strict` refuses it, as the language has it. `warn` and `quiet` handle it
+/// for the script - `warn` saying so as a warning, `quiet` not at all: where
+/// the function returns errors it is passed on, as `try` passes it, and
+/// elsewhere the script stops if it is one, naming it and where it was. So
+/// does `try` in a function that returns none. What `strict` takes is taken
+/// the same by all three: only what it refuses is handled.
+pub const Unhandled = enum { strict, warn, quiet };
 
 /// What the host says of a member of one of its types, keyed
 /// `"Type.member"` by the type's name as a script writes it. The list is

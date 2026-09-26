@@ -18,6 +18,7 @@ const Func = @import("Func.zig");
 const Compiler = @import("Compiler.zig");
 const Error = Compiler.Error;
 const expr = @import("expr.zig");
+const control = @import("control.zig");
 const Operand = expr.Operand;
 const binary = @import("binary.zig");
 const names = @import("names.zig");
@@ -180,7 +181,7 @@ pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     const pool = c.pool;
     const name = fl.name.text;
     const mark = f.free;
-    const t = try expr.compile(f, fl.target, null, .unknown);
+    const t = try control.unlessError(f, try expr.compile(f, fl.target, null, .unknown), fl.target.span);
     const rec = c.recording();
     if (rec) |r| if (r.isPlaceholder(name)) {
         r.members(t.type);
@@ -337,7 +338,7 @@ pub fn index(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     const c = f.comp;
     const pool = c.pool;
     const mark = f.free;
-    const t = try expr.compile(f, x.target, null, .unknown);
+    const t = try control.unlessError(f, try expr.compile(f, x.target, null, .unknown), x.target.span);
     if (pool.listOf(t.type)) |elem| {
         const i = try expr.typed(f, x.index, .int, "a list index");
         const out = try binary.result(f, dst, mark);

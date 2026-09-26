@@ -910,7 +910,16 @@ pub fn run(vm: *Vm, f: *Fiber) RunError!Value {
         },
         .unwrap => {
             const i = at(ip);
-            if (base[i.b].tag == .null) {
+            // With `c` set, an error nothing handled: the compiler's, for
+            // `Options.unhandled_errors`.
+            if (i.c == 1) {
+                if (base[i.b].tag == .@"error") {
+                    frame.ip = ip;
+                    const e = base[i.b].as(object.ErrorValue);
+                    if (e.message) |m| return vm.fail("error.{s} was not handled: {s}", .{ e.name.bytes(), m.bytes() });
+                    return vm.fail("error.{s} was not handled", .{e.name.bytes()});
+                }
+            } else if (base[i.b].tag == .null) {
                 frame.ip = ip;
                 return vm.fail("`.?` found null", .{});
             }

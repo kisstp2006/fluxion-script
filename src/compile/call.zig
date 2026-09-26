@@ -14,6 +14,7 @@ const Func = @import("Func.zig");
 const Compiler = @import("Compiler.zig");
 const Error = Compiler.Error;
 const expr = @import("expr.zig");
+const control = @import("control.zig");
 const Operand = expr.Operand;
 const names = @import("names.zig");
 const member = @import("member.zig");
@@ -53,7 +54,7 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
 
     if (cl.callee.kind == .field and !isStatic(f, cl.callee)) {
         const fl = cl.callee.kind.field;
-        const obj = try expr.compile(f, fl.target, null, .unknown);
+        const obj = try control.unlessError(f, try expr.compile(f, fl.target, null, .unknown), fl.target.span);
         const name = fl.name.text;
         const rec = c.recording();
         if (rec) |r| if (r.isPlaceholder(name)) {

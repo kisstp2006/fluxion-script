@@ -347,6 +347,23 @@ if (parsePort(arg)) |p| listen(p) else |err| print("bad port:", err.name);
 An error ignored is a compile error: `parsePort(arg);` alone is refused
 with a hint to `try`, `catch` or `_ =` it.
 
+**A host may be less strict** (`Vm.Options.unhandled_errors`). With `warn`
+or `quiet`, what `strict` refuses - a `!T` used as a `T`, an error ignored,
+`try` in a function that returns none - is handled for the script, with a
+warning or without one: where the function returns errors the error is
+passed on, as `try` passes it, and elsewhere the script stops if it is one,
+naming it and where it was:
+
+```zig
+fn update(self, dt: float) {
+    const n = int(self.text) + 1;   // strict: refused; warn: a warning, and
+                                    // "error.InvalidInt was not handled" if it is one
+}
+```
+
+What `strict` takes, the others take the same: only what it refuses is
+handled.
+
 `defer` runs a statement when the block ends, however it ends; `errdefer`
 only when the function returns an error:
 

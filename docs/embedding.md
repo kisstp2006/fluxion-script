@@ -407,6 +407,12 @@ vm.interrupt();            // from any thread: stop at the next loop round
 vm.setBudget(null);
 ```
 
+`unhandled_errors` says how strict the compiler is with an error nothing
+handles: `strict` (the language's, and the default) refuses it; `warn`
+handles it for the script and says so as a warning, and `quiet` handles it
+without a word - passed on where the function returns errors, the script
+stopped where it does not. An engine can let a project choose.
+
 A budget counts the rounds of every loop and stops the script when they run
 out, with the usual message and trace, so a script that never ends cannot
 freeze the program. `interrupt` does the same from another thread - a
