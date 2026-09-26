@@ -167,14 +167,39 @@ fn editorKey(k: platform.event.KeyEvent) ?code.Key {
         .slash => .slash,
         else => switch (letter) {
             .a => .a,
+            .c => .c,
+            .d => .d,
             .f => .f,
             .g => .g,
             .h => .h,
+            .k => .k,
+            .u => .u,
+            .v => .v,
+            .x => .x,
             .y => .y,
             .z => .z,
             else => null,
         },
     };
+}
+
+/// The platform's clipboard, for the code's Cut, Copy and Paste.
+fn clipboardOf(ctx: *platform.Context) code.Clipboard {
+    const Board = struct {
+        fn get(context: ?*anyopaque) []const u8 {
+            const c: *platform.Context = @ptrCast(@alignCast(context.?));
+            return c.clipboardText() catch "";
+        }
+        fn set(context: ?*anyopaque, text: []const u8) void {
+            const c: *platform.Context = @ptrCast(@alignCast(context.?));
+            c.setClipboardText(text) catch {};
+        }
+        fn has(context: ?*anyopaque) bool {
+            const c: *platform.Context = @ptrCast(@alignCast(context.?));
+            return c.hasClipboardText();
+        }
+    };
+    return .{ .context = ctx, .get = Board.get, .set = Board.set, .has = Board.has };
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -261,6 +286,7 @@ pub fn main(init: std.process.Init) !void {
     defer gpa.free(text);
     var editor: Code = try .init(gpa, path orelse "untitled.flux", text, flux_lang.language(), metrics);
     defer editor.deinit();
+    editor.clipboard = clipboardOf(&ctx);
     var runner: Runner = .init(gpa, io);
     defer runner.deinit();
     var state: panels.State = .{};
@@ -269,6 +295,7 @@ pub fn main(init: std.process.Init) !void {
     var pointer_y: f32 = 0;
     var down = false;
     var pressed = false;
+    var right_pressed = false;
     var wheel: f32 = 0;
     var mods: platform.Mods = .{};
     var focused = true;
@@ -292,10 +319,16 @@ pub fn main(init: std.process.Init) !void {
                 pointer_x = @floatCast(c.x);
                 pointer_y = @floatCast(c.y);
             },
-            .mouse_button => |b| if (b.button == .left) {
-                down = b.action == .press;
-                if (down) pressed = true;
-                mods = b.mods;
+            .mouse_button => |b| switch (b.button) {
+                .left => {
+                    down = b.action == .press;
+                    if (down) pressed = true;
+                    mods = b.mods;
+                },
+                .right => if (b.action == .press) {
+                    right_pressed = true;
+                },
+                else => {},
             },
             .scroll => |s| {
                 wheel += @floatCast(s.y);
@@ -326,22 +359,8 @@ pub fn main(init: std.process.Init) !void {
                     save(&editor, &runner, io);
                 } else if (ctrl and letter == .o) {
                     _ = ctx.openFileDialog(.{ .window = win, .filters = &.{.{ .name = "Flux scripts", .extensions = &.{"flux"} }} }) catch {};
-                } else if (ctrl and (letter == .c or letter == .x)) {
-                    const selected = editor.buffer.selectedText();
-                    if (selected.len > 0) {
-                        ctx.setClipboardText(selected) catch {};
-                        if (letter == .x) try editor.buffer.backspace();
-                    }
-                } else if (ctrl and letter == .v) {
-                    const pasted = ctx.clipboardText() catch "";
-                    if (pasted.len > 0) {
-                        const clean = try std.mem.replaceOwned(u8, gpa, pasted, "\r", "");
-                        defer gpa.free(clean);
-                        try editor.buffer.insert(clean);
-                        editor.reveal = true;
-                    }
                 } else if (editorKey(k)) |key| {
-                    _ = try editor.key(key, .{ .shift = k.mods.shift, .ctrl = ctrl });
+                    _ = try editor.key(key, .{ .shift = k.mods.shift, .ctrl = ctrl, .alt = k.mods.alt and !k.mods.control });
                 }
             },
             .file_dialog => |answer| if (answer.paths.len > 0) try open(&editor, &runner, answer.paths[0], io),
@@ -364,9 +383,10 @@ pub fn main(init: std.process.Init) !void {
             const fb_now = win.framebufferSize();
             state.panel_height = std.math.clamp(@as(f32, @floatFromInt(fb_now[1])) - pointer_y - 30, 60, @as(f32, @floatFromInt(fb_now[1])) - 200);
         } else {
-            panels.code_view.pointer(&editor, &ui, .{ .x = pointer_x, .y = pointer_y, .down = down, .pressed = pressed, .mods = .{ .shift = mods.shift, .ctrl = mods.control and !mods.alt } });
+            panels.code_view.pointer(&editor, &ui, .{ .x = pointer_x, .y = pointer_y, .down = down, .pressed = pressed, .secondary = right_pressed, .mods = .{ .shift = mods.shift, .ctrl = mods.control and !mods.alt } });
         }
         pressed = false;
+        right_pressed = false;
         if (wheel != 0) {
             if (panels.code_view.under(&ui)) editor.scroll(wheel, mods.shift) else _ = ui.scrollHovered(0, -wheel * 40);
             wheel = 0;
