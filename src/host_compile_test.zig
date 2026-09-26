@@ -32,7 +32,8 @@ const Deck = struct {
     /// too.
     pub const Pace = enum { slow, fast };
     pub const Cut = union(enum) { none, at: Split };
-    pub const Split = struct { index: i32 = 0 };
+    pub const Split = struct { index: i32 = 0, side: Side = .top };
+    pub const Side = enum { top, bottom };
 
     pub const reflect_fields = .{
         .speed = .{reflect.attr.Doc{ .text = "How fast it plays" }},
@@ -366,7 +367,7 @@ test "the choices a declared type's values take are named with it, but for a nam
     try expectMessages(a,
         \\const cuts: [Cut] = [.none, .none];
         \\fn index(c: Cut) int {
-        \\    if (c is Split) return c.index;
+        \\    if (c is Split and c.side == Side.top) return c.index;
         \\    return 0;
         \\}
         \\fn quick() {
