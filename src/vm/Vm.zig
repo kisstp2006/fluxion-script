@@ -191,6 +191,9 @@ host_docs: std.StringHashMapUnmanaged([]u8) = .empty,
 global_types: std.StringHashMapUnmanaged(*const reflect.Type) = .empty,
 /// The host's types a script names, by their names: see `declareType`.
 named_types: std.StringArrayHashMapUnmanaged(*const reflect.Type) = .empty,
+/// The names `declareType` gave the choices a declared type reaches: true
+/// while one has it, false once two wanted it.
+reached_types: std.StringHashMapUnmanaged(bool) = .empty,
 /// The host's enums as scripts have them, made as they are first met.
 host_enums: std.ArrayList(*object.EnumType) = .empty,
 extensions: std.ArrayList(*Extension) = .empty,
@@ -394,6 +397,7 @@ pub fn destroy(vm: *Vm) void {
     // Its names are the docs' own, freed with them.
     vm.global_types.deinit(gpa);
     vm.named_types.deinit(gpa);
+    vm.reached_types.deinit(gpa);
     vm.host_enums.deinit(gpa);
     for (vm.extensions.items) |e| gpa.destroy(e);
     vm.extensions.deinit(gpa);

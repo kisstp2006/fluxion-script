@@ -25,6 +25,14 @@ const Deck = struct {
     count: i32 = 0,
     mode: Mode = .stop,
     state: u8 = 0,
+    pace: Pace = .slow,
+    cut: Cut = .none,
+
+    /// Named by a script only as `deck.pace` wants it: `Card` has a `Pace`
+    /// too.
+    pub const Pace = enum { slow, fast };
+    pub const Cut = union(enum) { none, at: Split };
+    pub const Split = struct { index: i32 = 0 };
 
     pub const reflect_fields = .{
         .speed = .{reflect.attr.Doc{ .text = "How fast it plays" }},
@@ -76,6 +84,9 @@ const Deck = struct {
 
 const Card = struct {
     value: i32 = 0,
+    side: Pace = .up,
+
+    pub const Pace = enum { up, down };
 
     pub const reflect_attributes = .{bridge.GivesErrors{}};
     pub const reflect_methods = .{
@@ -348,6 +359,25 @@ test "a host's union is told apart with `is`, and what it is known to be is know
     , &.{"`Input.key` holds a KeyPress, which a name does not give"});
 }
 
+test "the choices a declared type's values take are named with it, but for a name two of them have" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try expectMessages(a,
+        \\const cuts: [Cut] = [.none, .none];
+        \\fn index(c: Cut) int {
+        \\    if (c is Split) return c.index;
+        \\    return 0;
+        \\}
+        \\fn quick() {
+        \\    deck.pace = .fast;
+        \\    const cut: Cut = deck.cut;
+        \\    print(cut == cuts[0]);
+        \\}
+    , &.{});
+    try expectMessages(a, "var pace: Pace = .fast;", &.{ "`Pace` is not a type", "which enum is `.fast` a member of?" });
+}
+
 test "a method given a type gives a value of it" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
@@ -474,6 +504,13 @@ test "where the scripts run: enums, unions, types given, another type's methods 
         \\fn keyed(e: Input) bool {
         \\    return e.isKey();
         \\}
+        \\fn idled(e: Input) bool {
+        \\    return e == .idle;
+        \\}
+        \\const choices: [Input] = [.idle, .idle];
+        \\fn chosen(e: Input) bool {
+        \\    return e == choices[0] and !(e is KeyPress);
+        \\}
         \\fn given() int {
         \\    const c = deck.get(Card);
         \\    c.flip();
@@ -502,6 +539,9 @@ test "where the scripts run: enums, unions, types given, another type's methods 
     try testing.expectEqual(@as(i64, 7), (try vm.callName(m, "kind", &.{try vm.valueOf(.of(&move))})).asInt());
     try testing.expectEqual(@as(i64, -1), (try vm.callName(m, "kind", &.{try vm.valueOf(.of(&idle))})).asInt());
     try testing.expect((try vm.callName(m, "keyed", &.{try vm.valueOf(.of(&key))})).asBool());
+    try testing.expect((try vm.callName(m, "idled", &.{try vm.valueOf(.of(&idle))})).asBool());
+    try testing.expect(!(try vm.callName(m, "idled", &.{try vm.valueOf(.of(&key))})).asBool());
+    try testing.expect((try vm.callName(m, "chosen", &.{try vm.valueOf(.of(&idle))})).asBool());
 
     try testing.expectEqual(@as(i64, -2), (try vm.callName(m, "given", &.{})).asInt());
     try testing.expectEqual(@as(i64, 5), (try vm.callName(m, "dealt", &.{})).asInt());

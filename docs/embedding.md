@@ -296,6 +296,13 @@ fn aim(target: Entity) Sprite {
 }
 ```
 
+The choices a declared type's values take and give are named with it: the
+enums and unions of its fields and of its methods' parameters and results,
+and what those unions' arms hold - `const modes: [Fullscreen] =
+[.windowed, .borderless]` once `App` is declared. A name two of them have
+is left to neither; a script writes those as the place they go wants,
+`.borderless`.
+
 A value's type is known from where it comes: a global the host defined (by
 its handle's type, or where the scripts are only compiled, by
 `vm.declareGlobal(name, type, doc)`), a host member

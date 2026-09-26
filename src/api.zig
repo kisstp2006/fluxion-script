@@ -20,6 +20,7 @@ const signal_lib = @import("lib/signal.zig");
 const reload_mod = @import("reload.zig");
 const types_mod = @import("vm/types.zig");
 const reflect = @import("fluxion_reflect");
+const bridge = @import("reflect.zig");
 
 pub const CompileError = error{ CompileFailed, OutOfMemory };
 pub const LoadError = error{ CompileFailed, Panic, OutOfMemory };
@@ -181,8 +182,70 @@ pub fn declareGlobal(vm: *Vm, name: []const u8, host_type: *const reflect.Type, 
 /// without the file it is in; a script's own declaration of the name hides
 /// it. An enum's members are named through it: `Key.space`. The type is the
 /// host's and lives as long as the VM.
+///
+/// The choices its values take and give are named with it: the enums and
+/// unions of its fields and of its methods' parameters and results, and
+/// what those unions' arms hold - `const modes: [Fullscreen] = [.windowed,
+/// .borderless]`. Not where a type is declared by that name, nor where two
+/// of them have one name: those a script still writes as the place they go
+/// wants them, `.borderless`.
 pub fn declareType(vm: *Vm, t: *const reflect.Type) Allocator.Error!void {
-    try vm.named_types.put(vm.gpa, @import("reflect.zig").nameOf(t), t);
+    const name = bridge.nameOf(t);
+    try vm.named_types.put(vm.gpa, name, t);
+    _ = vm.reached_types.remove(name);
+    for (t.fields()) |f| try reach(vm, f.type);
+    for (t.methods.slice()) |*m| {
+        const function = m.type.info.function;
+        for (function.params.slice()) |p| try reach(vm, p.type);
+        try reach(vm, function.return_type);
+    }
+}
+
+/// Names a choice a declared type's values take or give: see `declareType`.
+fn reach(vm: *Vm, t: *const reflect.Type) Allocator.Error!void {
+    const inner = heldBy(t);
+    switch (inner.kind) {
+        .@"enum" => try nameReached(vm, inner),
+        .@"union" => {
+            try nameReached(vm, inner);
+            for (inner.fields()) |arm| {
+                const held = heldBy(arm.type);
+                if (held.kind == .@"enum" or (held.kind == .@"struct" and bridge.vectorLength(held) == null)) try nameReached(vm, held);
+            }
+        },
+        else => {},
+    }
+}
+
+/// The type a value of `t` is, past an optional, an error, a pointer or a
+/// list.
+fn heldBy(t: *const reflect.Type) *const reflect.Type {
+    var at = t;
+    while (true) switch (at.kind) {
+        .optional, .error_union, .pointer, .slice, .array => at = at.child() orelse return at,
+        else => return at,
+    };
+}
+
+fn nameReached(vm: *Vm, t: *const reflect.Type) Allocator.Error!void {
+    if (bridge.hostType(vm, t) != null) return;
+    const name = bridge.nameOf(t);
+    const reached = try vm.reached_types.getOrPut(vm.gpa, name);
+    if (!reached.found_existing) {
+        if (vm.named_types.contains(name)) {
+            // Declared, and so its own.
+            _ = vm.reached_types.remove(name);
+            return;
+        }
+        reached.value_ptr.* = true;
+        try vm.named_types.put(vm.gpa, name, t);
+        return;
+    }
+    if (!reached.value_ptr.*) return;
+    if (vm.named_types.get(name).?.same(t)) return;
+    // Two choices of one name: neither is named.
+    reached.value_ptr.* = false;
+    _ = vm.named_types.orderedRemove(name);
 }
 
 /// A method the host calls on scripts' instances. See `Vm.Hook`.

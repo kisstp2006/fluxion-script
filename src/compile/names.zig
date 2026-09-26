@@ -118,10 +118,7 @@ fn hostType(f: *Func, name: []const u8, span: diag.Span, dst: ?u8) Error!?Operan
     const inner = (try host.named(c.vm, name)).?;
     const meta = try c.pool.meta(inner);
     if (c.recording()) |r| try r.hostType(c, span, name, inner);
-    if (t.kind == .@"enum") {
-        const e = c.pool.enumOf(inner).?;
-        return try expr.constant(f, dst, .fromObj(.enum_type, &e.type_obj.obj), meta);
-    }
+    if (c.pool.enumOf(inner)) |e| return try expr.constant(f, dst, .fromObj(.enum_type, &e.type_obj.obj), meta);
     return try expr.constant(f, dst, .hostType(t), meta);
 }
 
