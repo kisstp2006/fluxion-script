@@ -1,10 +1,15 @@
 {
   "name": "flux-language",
   "displayName": "Flux",
-  "description": "The Flux scripting language: highlighting, completions, hovers, signatures, go to definition and diagnostics, from `flux lsp`.",
+  "description": "The Flux scripting language: highlighting, completions, hovers, signatures, go to definition and diagnostics - with what the Fluxion engine gives a project's scripts.",
   "version": "0.1.0",
   "publisher": "fluxion",
   "license": "BSD-2-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kisstp2006/fluxion-script"
+  },
+  "homepage": "https://github.com/kisstp2006/fluxion-script/tree/main/editors/vscode",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -39,12 +44,23 @@
         "flux.path": {
           "type": "string",
           "default": "flux",
-          "description": "The `flux` command: a path to it, or its name on the PATH."
+          "description": "The `flux` command, which serves a .flux file outside a Fluxion project: a path to it, or its name on the PATH."
+        },
+        "flux.editorPath": {
+          "type": "string",
+          "default": "fluxion-editor",
+          "description": "The Fluxion editor, which serves the scripts of a Fluxion project - a folder with a project.fluxion in it - with what the engine gives them: a path to it, or its name on the PATH."
         }
       }
     }
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
+  },
+  "scripts": {
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.1"
   }
 }
