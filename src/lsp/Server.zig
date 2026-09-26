@@ -9,6 +9,10 @@
 //! An import is read from the editor when the file is open there, so what
 //! is typed in one file is seen in the files importing it before it is
 //! saved; otherwise from disk. Scripts get `os`, as `flux run` gives it.
+//!
+//! **A program that runs Flux serves its own scripts** with `host`: what it
+//! gives them in place of `os` - its globals, its types, the methods it
+//! calls - and where it reads an import no editor has open.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -36,6 +40,9 @@ shut_down: bool = false,
 /// Set by `exit`: what the process ends with.
 exit_code: ?u8 = null,
 host: os.Host,
+/// A program's own scripts: its setup and its loader instead of `os` and
+/// the disk. See the top of the file.
+given: ?service.Options = null,
 
 const Document = struct {
     uri: []u8,
@@ -312,11 +319,10 @@ fn analyze(s: *Server, d: *Document) !void {
 }
 
 fn options(s: *Server) service.Options {
-    return .{
-        .setup = .{ .context = s, .run = setup },
-        .loader = .{ .context = s, .load = load },
-        .io = s.io,
-    };
+    var o: service.Options = s.given orelse .{ .setup = .{ .context = s, .run = setup } };
+    o.loader = .{ .context = s, .load = load };
+    o.io = s.io;
+    return o;
 }
 
 fn setup(context: ?*anyopaque, vm: *Vm) anyerror!void {
@@ -331,6 +337,10 @@ fn load(context: ?*anyopaque, gpa: Allocator, from: []const u8, path: []const u8
     errdefer gpa.free(joined);
     for (s.documents.items) |d| if (uri.samePath(d.path, joined)) {
         return .{ .name = joined, .source = try gpa.dupe(u8, d.text) };
+    };
+    if (s.given) |g| if (g.loader) |host| {
+        gpa.free(joined);
+        return host.load(host.context, gpa, from, path);
     };
     const source = try std.Io.Dir.cwd().readFileAlloc(s.io, joined, gpa, .limited(16 << 20));
     return .{ .name = joined, .source = source };

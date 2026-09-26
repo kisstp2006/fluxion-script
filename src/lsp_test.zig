@@ -141,3 +141,51 @@ test "a session: open, ask, change, close" {
         return error.MissingReply;
     };
 }
+
+fn hostSetup(_: ?*anyopaque, vm: *@import("vm/Vm.zig")) anyerror!void {
+    try vm.defineGlobal("score", .int(3), "What the game has scored.");
+}
+
+fn hostLoad(_: ?*anyopaque, gpa: std.mem.Allocator, from: []const u8, path: []const u8) anyerror!@import("vm/Vm.zig").Loader.Loaded {
+    _ = from;
+    try testing.expectEqualStrings("res://lib/rules.flux", path);
+    return .{ .name = try gpa.dupe(u8, path), .source = try gpa.dupe(u8, "fn most() int { return 9; }") };
+}
+
+test "a program serves its own scripts: its globals, and its imports where the editor has none open" {
+    const gpa = testing.allocator;
+    var input: std.ArrayList(u8) = .empty;
+    defer input.deinit(gpa);
+    try frame(gpa, &input, .{ .jsonrpc = "2.0", .id = 1, .method = "initialize", .params = .{ .capabilities = .{} } });
+    try frame(gpa, &input, .{ .jsonrpc = "2.0", .method = "textDocument/didOpen", .params = .{ .textDocument = .{
+        .uri = doc_uri,
+        .languageId = "flux",
+        .version = 1,
+        .text = "const rules = @import(\"res://lib/rules.flux\");\nfn f() int { return score + rules.most(); }\n",
+    } } });
+    try frame(gpa, &input, .{ .jsonrpc = "2.0", .id = 2, .method = "shutdown" });
+    try frame(gpa, &input, .{ .jsonrpc = "2.0", .method = "exit" });
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    var server: Server = .init(gpa, testing.io, &output.writer);
+    defer server.deinit();
+    server.given = .{ .setup = .{ .run = hostSetup }, .loader = .{ .load = hostLoad } };
+    var in: std.Io.Reader = .fixed(input.items);
+    try testing.expectEqual(@as(u8, 0), try server.run(&in));
+
+    var replies: std.Io.Reader = .fixed(output.written());
+    var published = false;
+    while (try rpc.read(gpa, &replies)) |body| {
+        defer gpa.free(body);
+        var doc = try json.parse(gpa, body, .{});
+        defer doc.deinit();
+        if (doc.root.get("method").asString() == null) continue;
+        testing.expectEqual(@as(usize, 0), doc.root.get("params").get("diagnostics").len()) catch |e| {
+            std.debug.print("{s}\n", .{body});
+            return e;
+        };
+        published = true;
+    }
+    try testing.expect(published);
+}
