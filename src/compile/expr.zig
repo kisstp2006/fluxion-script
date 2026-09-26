@@ -96,8 +96,10 @@ pub fn typed(f: *Func, e: *const ast.Expr, want: Type, what: []const u8) Error!O
 /// `e` as a value of type `want`, in `dst`.
 pub fn typedInto(f: *Func, e: *const ast.Expr, dst: u8, want: Type, what: []const u8) Error!Operand {
     const v = try into(f, e, dst, want);
-    const w = try binary.coerce(f, v, want, e.span, what);
-    if (w.reg != dst) try f.abc(.move, dst, w.reg, 0);
+    if (v.reg != dst) try f.abc(.move, dst, v.reg, 0);
+    // Checked or converted where it is: a copy of a local made for it would
+    // hold a register the next argument wants.
+    const w = try binary.coerce(f, .{ .reg = dst, .type = v.type, .temp = true }, want, e.span, what);
     return .{ .reg = dst, .type = w.type, .temp = false };
 }
 

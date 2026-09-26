@@ -45,3 +45,29 @@ fn outer() int {
 }
 print(outer());
 // out: 15
+// A value of any type in a local, given where a typed parameter is: checked
+// where it goes, and the arguments after it still where they belong.
+fn pair(a: int, b: int) int {
+    return a * 10 + b;
+}
+fn given() int {
+    const first: any = 4;
+    return pair(first, 2);
+}
+print(given());
+// out: 42
+struct Spot {
+    var x: int = 0;
+    var y: int = 0;
+    fn sum(self, a: int, b: int) int {
+        return self.x + self.y + a * 10 + b;
+    }
+}
+fn gathered() {
+    const first: any = 4;
+    const xs: [int] = [first, 2];
+    const spot = Spot{ .x = first, .y = 2 };
+    print(xs, spot.x, spot.y, spot.sum(first, 2));
+}
+gathered();
+// out: [4, 2] 4 2 48
