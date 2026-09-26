@@ -295,7 +295,9 @@ fn shadowed(items: []const Item, name: []const u8) bool {
 }
 
 /// What is in scope in `f`: its locals and those of the functions around
-/// it, innermost first, then the module's declarations and the prelude.
+/// it, innermost first, then the module's declarations, the host's types -
+/// a value too, as in `entity.get(Sprite)` and `Key.escape` - and the
+/// prelude.
 pub fn scope(r: *Recorder, f: *Func) Allocator.Error!void {
     if (r.completion != null) return;
     const c = f.comp;
@@ -314,6 +316,11 @@ pub fn scope(r: *Recorder, f: *Func) Allocator.Error!void {
     for (c.globals.keys(), c.globals.values()) |name, g| {
         if (shadowed(items.items, name)) continue;
         try items.append(a, .{ .name = name, .kind = globalKind(g.kind), .type = g.type, .decl = c.at(g.span), .mutable = g.kind == .variable });
+    }
+    for (c.vm.named_types.keys()) |name| {
+        if (shadowed(items.items, name)) continue;
+        const t = (try @import("host.zig").named(c.vm, name)).?;
+        try items.append(a, .{ .name = name, .kind = if (c.pool.enumOf(t) != null) .@"enum" else .@"struct", .type = try c.pool.meta(t) });
     }
     var it = c.vm.prelude.iterator();
     while (it.next()) |e| {

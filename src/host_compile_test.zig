@@ -619,8 +619,12 @@ test "an editor is offered a host's members, and shown its methods' signatures a
     try testing.expect(itemNamed(arm, "isKey") != null);
     // Where a member of the enum is wanted.
     try testing.expect(itemNamed(try completions(a, "fn f() {\n    deck.setMode(.$\n}\n"), "loop") != null);
-    // Where a type is written.
+    // Where a type is written, and where a type is a value: a type given
+    // to a call, an enum's member named by its type.
     try testing.expect(itemNamed(try completions(a, "fn f(d: $) {}\n"), "Deck") != null);
+    const given = try completions(a, "fn f() {\n    deck.get(Ca$)\n}\n");
+    try testing.expectEqualStrings("struct", @tagName((itemNamed(given, "Card") orelse return error.NotOffered).kind));
+    try testing.expect(itemNamed(try completions(a, "fn f() {\n    const m = Mo$\n}\n"), "Mode") != null);
 
     // A method the host calls, whole, where a struct's method is written;
     // those written already are not offered again.
