@@ -403,7 +403,7 @@ pub fn assignField(f: *Func, target: *const ast.Expr, value: *const ast.Expr, op
         const want: Type = if (host.member(c.vm, ht, name)) |found| switch (found) {
             .field => |fd| blk: {
                 if (rec) |r| try useHost(c, r, fl.name.span, ht, found, try host.memberType(c.vm, found));
-                break :blk try host.typeOf(c.vm, fd.field.type);
+                break :blk try host.takenType(c.vm, fd.field.type);
             },
             .declared => |d| blk: {
                 if (rec) |r| try useHost(c, r, fl.name.span, ht, found, try host.memberType(c.vm, found));

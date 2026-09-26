@@ -120,6 +120,29 @@ const Input = union(enum) {
     }
 };
 
+/// A seat at the table, which may be empty: none, to a script null.
+const Seat = extern struct {
+    number: u8 = 0,
+
+    pub const none: Seat = .{};
+};
+
+fn seatToScript(_: *Vm, value: reflect.Value) Vm.Error!Value {
+    const seat = value.get(Seat).?;
+    return if (seat.number == 0) .null else .int(seat.number);
+}
+
+fn seatFromScript(vm: *Vm, into: reflect.Value, value: Value) Vm.Error!void {
+    const seat: Seat = switch (value.tag) {
+        .null => .none,
+        .int => .{ .number = @intCast(value.asInt()) },
+        else => return vm.fail("a seat is a number, or null for none", .{}),
+    };
+    into.set(Seat, seat) catch return vm.fail("this seat can only be read", .{});
+}
+
+const seat_type: Vm.HostType = .{ .type = reflect.typeOf(Seat), .given = .int, .nullable = true, .to_script = seatToScript, .from_script = seatFromScript };
+
 /// What gives a deck the methods whose first argument is one.
 const Table = struct {
     dealt: i32 = 0,
@@ -127,7 +150,16 @@ const Table = struct {
     pub const reflect_methods = .{
         .deal = .{ reflect.attr.Params{ .names = &.{ "deck", "cards" } }, bridge.Alias{ .name = "dealOut" } },
         .countOf = .{reflect.attr.Params{ .names = &.{"deck"} }},
+        .sit = .{ reflect.attr.Params{ .names = &.{ "deck", "seat" } }, bridge.GivesErrors{} },
     };
+
+    /// Takes a seat for the deck, or none; a taken one is refused as a
+    /// value, as this method says.
+    pub fn sit(self: *Table, deck: *Deck, seat: Seat) error{Taken}!void {
+        _ = deck;
+        if (seat.number == 13) return error.Taken;
+        self.dealt += seat.number;
+    }
 
     pub fn deal(self: *Table, deck: *Deck, cards: i32) void {
         self.dealt += cards;
@@ -158,6 +190,7 @@ fn setup(_: ?*anyopaque, vm: *Vm) anyerror!void {
     try vm.declareGlobal("deck", reflect.typeOf(Deck), "The deck on the table.");
     try vm.declareHostMemberOf("held", reflect.typeOf(Deck), "The deck this one holds.");
     try vm.extend(reflect.typeOf(Deck), reflect.typeOf(Table), .null);
+    vm.options.host_types = &.{seat_type};
 }
 
 const options: service.Options = .{ .setup = .{ .run = setup } };
@@ -348,6 +381,8 @@ test "another type's methods are a value's own, under their aliases" {
     try expectMessages(a,
         \\fn ok() int {
         \\    deck.dealOut(3);
+        \\    deck.sit(4) catch {};
+        \\    deck.sit(null) catch |err| print(err);
         \\    return deck.countOf();
         \\}
     , &.{});
@@ -355,10 +390,12 @@ test "another type's methods are a value's own, under their aliases" {
         \\fn wrong() {
         \\    deck.dealOut();
         \\    deck.deal(1);
+        \\    deck.sit(1);
         \\}
     , &.{
         "`dealOut` takes 1 argument, and is given 0",
         "`Deck` has no field or method `deal`",
+        "the error this may give is ignored",
     });
 }
 

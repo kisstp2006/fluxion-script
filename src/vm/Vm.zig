@@ -138,6 +138,10 @@ pub const HostType = struct {
     /// language's own - a path's string, a colour - for the compiler to
     /// know it by. Null, and not `script`: `any`.
     given: ?BuiltinType = null,
+    /// Whether it may be none, which a script writes as null: an entity. A
+    /// parameter or a field of the type takes null then; what a call gives
+    /// back is known as the type, and is null where the host says none.
+    nullable: bool = false,
     /// The value as the script's. `vm.host` is the host's, to find its
     /// own things by.
     to_script: *const fn (vm: *Vm, value: reflect.Value) Error!Value,

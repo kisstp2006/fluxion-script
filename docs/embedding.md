@@ -327,10 +327,12 @@ method gives them defaults (`attr.defaults`) - and of what types.
   collector owns - says of what type with `flux.Returns.of(T)`, or
   `flux.Returns{ .builtin = .signal }`.
 - **An error** a method returns stops the script, with the error's name,
-  as a mistake in the script would; the errors of the methods of a type
-  marked `flux.GivesErrors` (in `reflect_attributes`) are values the script
-  catches instead, and the method's result is `!T`: `files.readText(path)
-  catch ""`.
+  as a mistake in the script would; the errors of a method marked
+  `flux.GivesErrors` - or of every method of a type marked so, in its
+  `reflect_attributes` - are values the script catches instead, and the
+  method's result is `!T`: `files.readText(path) catch ""`.
+- **None**: a converted type that may be none - an entity - says so with
+  `HostType.nullable`, and a parameter or a field of it takes null.
 - **Another type's methods**: `vm.extend(of, by, receiver)` gives the
   values of `of` every method of `receiver` - a handle of `by` - whose first
   argument a script gives is one of `of`: `app.childCount(e)` as

@@ -579,11 +579,17 @@ pub const Returns = union(enum) {
     }
 };
 
-/// Said of a type whose methods' errors a script is given as values, to
-/// `catch`: a file that is not there. Without it, an error from one of a
-/// type's methods stops the script, with the error's name, as a mistake in
-/// the script would.
+/// Said of a method, or of a type for all its methods, whose errors a
+/// script is given as values, to `catch`: a file that is not there. Without
+/// it, an error from a method stops the script, with the error's name, as a
+/// mistake in the script would.
 pub const GivesErrors = struct {};
+
+/// Whether an error of `m`, called on a value of `owner`, is a value to a
+/// script: see `GivesErrors`.
+pub fn givesErrors(m: *const reflect.Method, owner: *const reflect.Type) bool {
+    return m.attribute(GivesErrors) != null or owner.attribute(GivesErrors) != null;
+}
 
 const max_args = 16;
 
@@ -689,7 +695,7 @@ fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value, implicit: usiz
             // A method given the VM stops the script the way a native does.
             if (vm.panic != null and std.mem.eql(u8, name, "Panic")) return error.Panic;
             if (std.mem.eql(u8, name, "OutOfMemory")) return error.OutOfMemory;
-            if (values[0].type.attribute(GivesErrors) != null) return make.errorText(vm, name, null);
+            if (givesErrors(m, values[0].type)) return make.errorText(vm, name, null);
             return vm.fail("`{s}` failed: error.{s}", .{ m.name.slice(), name });
         };
         return resultOf(vm, held);

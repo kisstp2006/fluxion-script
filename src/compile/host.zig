@@ -84,6 +84,14 @@ fn allVoid(t: *const reflect.Type) bool {
     return true;
 }
 
+/// What a script may give where the host takes a value of type `t`: the
+/// type, or null too for one that may be none (`HostType.nullable`).
+pub fn takenType(vm: *Vm, t: *const reflect.Type) Allocator.Error!Type {
+    const known = try typeOf(vm, t);
+    const host = bridge.hostType(vm, t) orelse return known;
+    return if (host.nullable) pool(vm).optional(known) else known;
+}
+
 /// The Flux enum of the host's enum `t`: one for each, shared by the
 /// modules compiled in the VM.
 pub fn enumOf(vm: *Vm, t: *const reflect.Type) Allocator.Error!Type {
@@ -117,14 +125,14 @@ pub fn named(vm: *Vm, name: []const u8) Allocator.Error!?Type {
 
 /// What a method gives back. A `flux.Value` is the type it was given, when
 /// it was given one. An error a script cannot catch - the VM stopping it -
-/// is no error to it, nor is one of a type whose errors stop the script
+/// is no error to it, nor is one of a method whose errors stop the script
 /// (see `bridge.GivesErrors`).
 pub fn resultType(vm: *Vm, m: *const reflect.Method, owner: *const reflect.Type, given: ?Type) Allocator.Error!Type {
     const p = pool(vm);
     var ret = m.type.info.function.return_type;
     var catchable = false;
     if (ret.kind == .error_union) {
-        catchable = owner.attribute(bridge.GivesErrors) != null and !onlyStops(ret.info.error_union.error_set);
+        catchable = bridge.givesErrors(m, owner) and !onlyStops(ret.info.error_union.error_set);
         ret = ret.info.error_union.payload;
     }
     const optional = ret.kind == .optional and ret.child().?.is(Value);
@@ -295,7 +303,7 @@ pub fn signature(vm: *Vm, arena: Allocator, found: Method) Allocator.Error!*type
         const is_type = p.type.kind == .type;
         try shown.append(arena, .{
             .name = if (name.len > 0) name else try std.fmt.allocPrint(arena, "arg{d}", .{shown.items.len + 1}),
-            .type = if (is_type) .any else try typeOf(vm, p.type),
+            .type = if (is_type) .any else try takenType(vm, p.type),
             .has_default = has_default,
             .default_text = if (has_default) try defaultText(arena, defaults[i - first_default]) else null,
             .type_text = if (is_type) "type" else null,
