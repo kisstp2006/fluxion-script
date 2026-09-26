@@ -34,7 +34,10 @@ Any other `.flux` file is served by `flux lsp`, with the `os` module that
 
 ## Install
 
-Each server is found on the PATH, or where a setting says:
+The Fluxion editor's Project ▸ Open project in code editor writes
+`flux.editorPath` into the project's `.vscode/settings.json` itself, so a
+project opened from it needs nothing set. Otherwise each server is found on
+the PATH, or where a setting says:
 
 - `flux.editorPath` - the Fluxion editor, for a project's scripts
   (`fluxion-editor` by default);
