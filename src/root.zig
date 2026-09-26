@@ -41,6 +41,8 @@ pub const Alias = @import("reflect.zig").Alias;
 /// Said of a type whose methods' errors a script catches: see
 /// `reflect.zig`.
 pub const GivesErrors = @import("reflect.zig").GivesErrors;
+/// What a method that gives back a `flux.Value` gives: see `reflect.zig`.
+pub const Returns = @import("reflect.zig").Returns;
 pub const Hook = Vm.Hook;
 pub const Annotation = Vm.Annotation;
 pub const Doc = Vm.Doc;

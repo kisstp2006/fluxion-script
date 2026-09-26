@@ -78,7 +78,11 @@ const Card = struct {
     value: i32 = 0,
 
     pub const reflect_attributes = .{bridge.GivesErrors{}};
-    pub const reflect_methods = .{ .flip, .read };
+    pub const reflect_methods = .{
+        .flip = .{},
+        .read = .{},
+        .copy = .{ reflect.attr.Params{ .names = &.{"vm"} }, bridge.Returns.of(Card) },
+    };
 
     pub fn flip(self: *Card) void {
         self.value = -self.value;
@@ -88,6 +92,15 @@ const Card = struct {
     pub fn read(self: *Card) error{Unreadable}![]const u8 {
         if (self.value < 0) return error.Unreadable;
         return "ace";
+    }
+
+    /// A card the collector owns, as a `flux.Value` whose type the method
+    /// says.
+    pub fn copy(self: *Card, vm: *Vm) Vm.Error!Value {
+        const made = try vm.newHandle(Card);
+        const held: *Card = @ptrCast(@alignCast(made.as(@import("vm/object.zig").Handle).value.ptr));
+        held.* = self.*;
+        return made;
     }
 };
 
@@ -310,6 +323,7 @@ test "a method given a type gives a value of it" {
         \\fn ok() {
         \\    deck.get(Card).flip();
         \\    if (deck.find(Card)) |c| c.flip();
+        \\    deck.card(1).copy().flip();
         \\}
     , &.{});
     try expectMessages(a,
@@ -317,11 +331,13 @@ test "a method given a type gives a value of it" {
         \\    deck.get(Card).shuffle();
         \\    deck.find(Card).flip();
         \\    deck.get(3);
+        \\    deck.card(1).copy().shuffle();
         \\}
     , &.{
         "`Card` has no field or method `shuffle`",
         "cannot call `flip` on a value that may be null",
         "`kind` is a type, and is given int",
+        "`Card` has no field or method `shuffle`",
     });
 }
 

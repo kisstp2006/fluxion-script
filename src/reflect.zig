@@ -565,6 +565,20 @@ pub fn extends(vm: *const Vm, m: *const reflect.Method, ext: *const Vm.Extension
 /// `app.parentOf(e)` `e.parent()`. See `Vm.extend`.
 pub const Alias = struct { name: []const u8 };
 
+/// What a method that gives back a `flux.Value` gives - a string it made, a
+/// handle the collector owns - for the compiler to know it by:
+/// `.config = .{ flux.Returns.of(Config) }`, `.nextFrame = .{
+/// flux.Returns{ .builtin = .signal } }`. A `?flux.Value` is one of them or
+/// null.
+pub const Returns = union(enum) {
+    type: *const reflect.Type,
+    builtin: Vm.BuiltinType,
+
+    pub fn of(comptime T: type) Returns {
+        return .{ .type = reflect.typeOf(T) };
+    }
+};
+
 /// Said of a type whose methods' errors a script is given as values, to
 /// `catch`: a file that is not there. Without it, an error from one of a
 /// type's methods stops the script, with the error's name, as a mistake in

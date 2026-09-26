@@ -323,7 +323,9 @@ method gives them defaults (`attr.defaults`) - and of what types.
   fluxion_reflect.Type`, which a script passes by name - that gives back a
   `flux.Value` gives a value of that type, a `?flux.Value` one that may be
   null: `entity.get(Sprite)` is a Sprite, `entity.find(Sprite)` a
-  `?Sprite`.
+  `?Sprite`. One that makes what it gives - a string, a handle the
+  collector owns - says of what type with `flux.Returns.of(T)`, or
+  `flux.Returns{ .builtin = .signal }`.
 - **An error** a method returns stops the script, with the error's name,
   as a mistake in the script would; the errors of the methods of a type
   marked `flux.GivesErrors` (in `reflect_attributes`) are values the script

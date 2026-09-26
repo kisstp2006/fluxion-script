@@ -128,8 +128,17 @@ pub fn resultType(vm: *Vm, m: *const reflect.Method, owner: *const reflect.Type,
         ret = ret.info.error_union.payload;
     }
     const optional = ret.kind == .optional and ret.child().?.is(Value);
-    const t = if (given) |g| (if (ret.is(Value) or optional) g else try typeOf(vm, ret)) else try typeOf(vm, ret);
-    const held = if (optional and given != null) try p.optional(t) else t;
+    if (!ret.is(Value) and !optional) {
+        const t = try typeOf(vm, ret);
+        return if (catchable) p.errorUnion(t) else t;
+    }
+    // A `flux.Value`: the type given, or the one the method says it gives.
+    const said: ?Type = if (given) |g| g else if (m.attribute(bridge.Returns)) |r| switch (r.*) {
+        .type => |t| try typeOf(vm, t),
+        .builtin => |b| builtin(b),
+    } else null;
+    const t = said orelse return if (catchable) p.errorUnion(.any) else .any;
+    const held = if (optional) try p.optional(t) else t;
     return if (catchable) p.errorUnion(held) else held;
 }
 
