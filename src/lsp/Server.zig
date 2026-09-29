@@ -428,8 +428,16 @@ const CompletionItem = struct {
     filter_text: []const u8,
     /// 2 for a snippet: `$0` where the cursor goes.
     insert_text_format: u8 = 1,
-    text_edit: struct { range: Range, new_text: []const u8, pub const json_case = .camel; },
+    text_edit: Edit,
+    /// An import put in at the top with it.
+    additional_text_edits: ?[]const Edit = null,
     pub const json_case = .camel;
+
+    const Edit = struct {
+        range: Range,
+        new_text: []const u8,
+        pub const json_case = .camel;
+    };
 };
 
 /// What a completion puts in, as a snippet when it says where the cursor
@@ -464,6 +472,7 @@ fn completion(s: *Server, arena: Allocator, id: json.Value, d: *Document, params
         .filter_text = if (i.insert) |text| text[0 .. std.mem.indexOfScalar(u8, text, '(') orelse text.len] else i.label,
         .insert_text_format = if (i.caret != null) 2 else 1,
         .text_edit = .{ .range = replace, .new_text = if (i.insert) |text| (if (i.caret) |caret| try snippet(arena, text, caret) else text) else i.label },
+        .additional_text_edits = if (i.also) |also| try arena.dupe(CompletionItem.Edit, &.{.{ .range = rangeOf(&d.lines, .{ .start = also.at, .end = also.at }), .new_text = also.text }}) else null,
     };
     try s.respond(id, .{ .isIncomplete = false, .items = items });
 }

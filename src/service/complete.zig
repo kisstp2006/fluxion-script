@@ -26,6 +26,7 @@ const color_names = @import("../lib/color_names.zig");
 const Analysis = @import("Analysis.zig");
 const cursor = @import("cursor.zig");
 const docs = @import("docs.zig");
+const imports = @import("imports.zig");
 const host = @import("../compile/host.zig");
 const reflect = @import("fluxion_reflect");
 
@@ -45,6 +46,15 @@ pub const Item = struct {
     insert: ?[]const u8 = null,
     /// Where in `insert` the cursor goes then.
     caret: ?u32 = null,
+    /// Text put in before the word too: the import of the file a name is
+    /// from, at the top of this one.
+    also: ?Also = null,
+};
+
+pub const Also = struct {
+    /// Where it goes: before `Completions.start`.
+    at: u32,
+    text: []const u8,
 };
 
 pub const Completions = struct {
@@ -56,6 +66,7 @@ pub const Completions = struct {
 
 /// What could be typed at `offset` in `source`, the file `name`.
 pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []const u8, offset: u32, options: service.Options) service.Error!Completions {
+    if (try imports.importString(gpa, source, offset)) |at| return importable(gpa, arena, name, at, options);
     if (try cursor.stringArgument(gpa, source, offset)) |at| {
         // Inside `color("`: the colours' names.
         if (at.receiver == null and at.arg == 0 and std.mem.eql(u8, at.callee, "color")) {
@@ -118,6 +129,7 @@ pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []co
         .scope => |items| {
             for (items) |it| try add.item(it, if (it.local) 0 else if (it.kind == .builtin_function) 2 else 1);
             try add.keywords();
+            if (ctx.kind == .name and ctx.end > ctx.start) try elsewhere(gpa, arena, name, source, options, &list);
         },
         .members => |t| try add.members(t),
         .statics => |t| try add.statics(t),
@@ -168,6 +180,67 @@ fn hooks(gpa: Allocator, arena: Allocator, source: []const u8, ctx: cursor.Conte
             .doc = if (hook.doc) |d| try arena.dupe(u8, d) else null,
             .insert = insert,
             .caret = @intCast(head.len + 3 + indent.len + 4),
+        });
+    }
+}
+
+/// What an `@import("` may name: the modules built in, and the files the
+/// host says a script may import, but this one.
+fn importable(gpa: Allocator, arena: Allocator, name: []const u8, at: [2]u32, options: service.Options) service.Error!Completions {
+    var list: std.ArrayList(Item) = .empty;
+    const vm = try service.newVm(gpa, options);
+    defer vm.destroy();
+    var modules = vm.native_modules.keyIterator();
+    while (modules.next()) |module| try list.append(arena, .{ .label = try arena.dupe(u8, module.*), .kind = .module, .detail = "built in", .rank = 0 });
+    if (options.imports) |files| for (try files.list(files.context, arena)) |path| {
+        if (std.mem.eql(u8, path, name)) continue;
+        try list.append(arena, .{ .label = path, .kind = .module, .detail = "a script", .rank = 1 });
+    };
+    return .{ .items = list.items, .start = at[0], .end = at[1] };
+}
+
+/// What the other files declare at their top, for a name being typed: each
+/// put in as `file.Name`, and the file imported at the top of this one if it
+/// is not yet. After what is in scope.
+fn elsewhere(gpa: Allocator, arena: Allocator, name: []const u8, source: []const u8, options: service.Options, list: *std.ArrayList(Item)) service.Error!void {
+    const files = options.imports orelse return;
+    const loader = options.loader orelse return;
+    const here = try imports.top(gpa, arena, source);
+    // What this file imports, by the name the loader knows it by: the same
+    // file however its import spells it.
+    const known = try arena.alloc(?[]const u8, here.imports.len);
+    for (here.imports, known) |i, *k| {
+        const loaded = loader.load(loader.context, gpa, name, i.path) catch {
+            k.* = null;
+            continue;
+        };
+        gpa.free(loaded.source);
+        k.* = try arena.dupe(u8, loaded.name);
+        gpa.free(loaded.name);
+    }
+    for (try files.list(files.context, arena)) |path| {
+        const loaded = loader.load(loader.context, gpa, name, path) catch continue;
+        defer gpa.free(loaded.source);
+        defer gpa.free(loaded.name);
+        if (std.mem.eql(u8, loaded.name, name) or std.mem.eql(u8, path, name)) continue;
+        const there = try imports.top(gpa, arena, loaded.source);
+        if (there.decls.len == 0) continue;
+        const imported: ?[]const u8 = for (here.imports, known) |i, k| {
+            if (k) |canonical| if (std.mem.eql(u8, canonical, loaded.name)) break i.name;
+        } else null;
+        const alias = imported orelse try imports.aliasFor(arena, path, here);
+        const also: ?Also = if (imported == null) .{
+            .at = here.importPlace(source),
+            .text = try std.fmt.allocPrint(arena, "const {s} = @import(\"{s}\");\n", .{ alias, path }),
+        } else null;
+        for (there.decls) |d| try list.append(arena, .{
+            .label = d.name,
+            .kind = d.kind,
+            .detail = try std.fmt.allocPrint(arena, "{s}.{s}, from {s}", .{ alias, d.name, path }),
+            .doc = if (imported == null) try std.fmt.allocPrint(arena, "Put in as `{s}.{s}`, with `const {s} = @import(\"{s}\");` at the top.", .{ alias, d.name, alias, path }) else null,
+            .rank = 3,
+            .insert = try std.fmt.allocPrint(arena, "{s}.{s}", .{ alias, d.name }),
+            .also = also,
         });
     }
 }

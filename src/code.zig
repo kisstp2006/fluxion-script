@@ -149,6 +149,7 @@ fn complete(context: ?*anyopaque, gpa: Allocator, arena: Allocator, path: []cons
             .call = if (!callable or item.insert != null) .none else if (std.mem.indexOf(u8, item.detail, "()") != null) .empty else .arguments,
             .insert = item.insert,
             .caret = item.caret,
+            .also = if (item.also) |also| .{ .at = also.at, .text = also.text } else null,
             .swatch = if (item.color) |rgb| .{
                 @as(f32, @floatFromInt(rgb >> 16)) / 255,
                 @as(f32, @floatFromInt((rgb >> 8) & 0xFF)) / 255,

@@ -329,6 +329,53 @@ test "an import is followed: its declarations, their docs, their members" {
     try testing.expectEqualStrings("Enemy spawn ", try labels(arena.allocator(), c));
 }
 
+/// The project of the test below: `enemies.flux` beside `main.flux`, both
+/// named by their `res://` path however an import spells them.
+fn fromProject(_: ?*anyopaque, gpa: std.mem.Allocator, _: []const u8, path: []const u8) anyerror!@import("vm/Vm.zig").Loader.Loaded {
+    if (!std.mem.eql(u8, path, "enemies.flux") and !std.mem.eql(u8, path, "res://enemies.flux")) return error.FileNotFound;
+    return .{ .name = try gpa.dupe(u8, "res://enemies.flux"), .source = try gpa.dupe(u8, enemies_source) };
+}
+
+fn projectFiles(_: ?*anyopaque, arena: std.mem.Allocator) std.mem.Allocator.Error![]const []const u8 {
+    return arena.dupe([]const u8, &.{ "res://enemies.flux", "res://main.flux" });
+}
+
+fn itemNamed(c: service.Completions, label: []const u8) ?service.Item {
+    for (c.items) |i| if (std.mem.eql(u8, i.label, label)) return i;
+    return null;
+}
+
+test "an import is offered: the modules and the files in its quotes, and a name another file declares put in with its import" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const options: service.Options = .{ .loader = .{ .load = fromProject }, .imports = .{ .list = projectFiles } };
+
+    // In the quotes: the modules built in and the other files.
+    const quoted = "const x = @import(\"\");\n";
+    const in_quotes = try service.complete(testing.allocator, arena, "res://main.flux", quoted, @intCast(std.mem.indexOf(u8, quoted, "\"\"").? + 1), options);
+    try testing.expect(itemNamed(in_quotes, "math") != null);
+    try testing.expect(itemNamed(in_quotes, "res://enemies.flux") != null);
+    try testing.expect(itemNamed(in_quotes, "res://main.flux") == null);
+
+    // A name the other file declares, its import put in after the comments
+    // the file starts with.
+    const typed = "// The arena.\nfn f() {\n    Ene\n}\n";
+    const c = try service.complete(testing.allocator, arena, "res://main.flux", typed, @intCast(std.mem.indexOf(u8, typed, "Ene\n").? + 3), options);
+    const enemy = itemNamed(c, "Enemy").?;
+    try testing.expectEqualStrings("enemies.Enemy", enemy.insert.?);
+    try testing.expectEqual(@as(u32, 14), enemy.also.?.at);
+    try testing.expectEqualStrings("const enemies = @import(\"res://enemies.flux\");\n", enemy.also.?.text);
+
+    // Imported already, however its import spells it: under its name, and
+    // nothing more.
+    const again = "const foes = @import(\"enemies.flux\");\nfn f() {\n    spa\n}\n";
+    const d = try service.complete(testing.allocator, arena, "res://main.flux", again, @intCast(std.mem.indexOf(u8, again, "spa\n").? + 3), options);
+    const spawn = itemNamed(d, "spawn").?;
+    try testing.expectEqualStrings("foes.spawn", spawn.insert.?);
+    try testing.expect(spawn.also == null);
+}
+
 test "a file with mistakes is still analysed, its mistakes kept" {
     const source = "fn f() int {\n    return \"text\";\n}\nfn g() {\n    f().x;\n}\n";
     const a = try Analysis.init(testing.allocator, "bad.flux", source, .{});

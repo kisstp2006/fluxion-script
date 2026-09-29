@@ -46,7 +46,18 @@ pub const Options = struct {
     /// Where imports come from. An editor gives the text of the files it
     /// has open, and the rest from disk.
     loader: ?Vm.Loader = null,
+    /// The files a script may import, offered inside `@import("`; and
+    /// where a name is typed, what each declares, put in with its import.
+    /// Without it, `@import("` offers the modules built in.
+    imports: ?Imports = null,
     io: ?std.Io = null,
+};
+
+pub const Imports = struct {
+    context: ?*anyopaque = null,
+    /// Each file's path as an import names it - `res://lib/save.flux` -
+    /// made in `arena`. Read through `Options.loader`.
+    list: *const fn (context: ?*anyopaque, arena: Allocator) Allocator.Error![]const []const u8,
 };
 
 pub const Setup = struct {
@@ -115,5 +126,6 @@ pub fn newVm(gpa: Allocator, options: Options) Error!*Vm {
 test {
     _ = cursor;
     _ = docs;
+    _ = @import("service/imports.zig");
     _ = @import("service_test.zig");
 }

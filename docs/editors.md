@@ -180,6 +180,11 @@ const sig = try service.signatureHelp(gpa, arena, "player.flux", text, cursor, o
 Offsets are bytes into the text. `options.setup` gives each VM the service
 makes what the host gives its scripts - its natives and modules - so that
 `@import("game")` completes; `options.loader` says where imports come from.
+`options.imports` lists the files a script may import: they are offered in
+an `@import("` beside the modules built in, and where a name is typed, what
+each declares at its top is offered too - put in as `file.Name`, with
+`const file = @import("...");` added at the top when the file has no import
+of it yet, one step to undo (`Item.also`; `additionalTextEdits` over LSP).
 
 A program serves its own scripts to the editors above as `flux lsp` serves
 any: a `flux.lsp.Server` with its options as `given`, run on its standard
