@@ -327,7 +327,11 @@ test "a host's enum is a Flux enum: its members named with a dot where one is wa
         \\    deck.mode = .play;
         \\    if (deck.mode == .stop) print("stopped");
         \\    const m: Mode = Mode.play;
-        \\    print(m);
+        \\    print(m, m.name());
+        \\    const all: [Mode] = Mode.members();
+        \\    const found: ?Mode = Mode.from_name("loop");
+        \\    deck.setMode(Mode.from_int(2) orelse .stop);
+        \\    print(all, found);
         \\}
     , &.{});
     try expectMessages(a,
@@ -335,11 +339,15 @@ test "a host's enum is a Flux enum: its members named with a dot where one is wa
         \\    deck.setMode("loop");
         \\    if (deck.mode == .jump) print("?");
         \\    deck.mode = 1;
+        \\    deck.setMode(Mode.from_name("loop"));
+        \\    print(Mode.every());
         \\}
     , &.{
         "the argument must be Mode, not string",
         "`Mode` has no member `jump`",
         "the field must be Mode, not int",
+        "the argument must be Mode, but this may be null",
+        "`Mode` has no member `every`",
     });
 }
 

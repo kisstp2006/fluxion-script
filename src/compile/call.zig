@@ -115,6 +115,15 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
             } else {
                 _ = try c.err(fl.name.span, "`{s}` has no method `{s}`", .{ en.name, name });
             }
+        } else if (enumNamed(c, obj.type)) |en| {
+            // One of the host's enums, named: `Key.members()`.
+            method_call = true;
+            if (try builtins.enumStatic(c.pool, en.self_type, name)) |ft| {
+                if (rec) |r| try r.use(.{ .span = fl.name.span, .kind = .builtin_method, .type = ft, .owner = obj.type });
+                known = .{ .signature = c.pool.signatureOf(ft).? };
+            } else {
+                _ = try c.err(fl.name.span, "`{s}` has no member `{s}`", .{ en.name, name });
+            }
         } else if (c.pool.isOptional(obj.type) != null) {
             _ = try (try c.err(fl.name.span, "cannot call `{s}` on a value that may be null", .{name}))
                 .help("unwrap it first: `x.?.{s}(...)` or `if (x) |v| v.{s}(...)`", .{ name, name });
@@ -291,6 +300,11 @@ fn arity(f: *Func, e: *const ast.Expr, least: usize, most: usize, given: usize) 
 
 /// `Type.name` and `module.name` name what they call without a value to
 /// call it on.
+/// The enum a type named as a value is, when it is one.
+fn enumNamed(c: *Compiler, t: types.Type) ?*types.Enum {
+    return c.pool.enumOf(c.pool.metaOf(t) orelse return null);
+}
+
 fn isStatic(f: *Func, callee: *const ast.Expr) bool {
     const target = callee.kind.field.target;
     if (target.kind != .ident) return false;
