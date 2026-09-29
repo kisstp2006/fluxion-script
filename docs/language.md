@@ -312,6 +312,19 @@ print(state, int(State.dead));     // State.run 11
 print(Dir.left.flip());            // Dir.right
 ```
 
+Every enum has, beside what it declares, its members as a list and found
+by name or value, and each member its name - a menu of them, a save that
+writes a name:
+
+```zig
+for (State.members()) |s| print(s.name());   // idle run jump dead
+const saved = State.from_name("jump");       // ?State: State.jump
+const lost = State.from_int(3);              // null: no member is 3
+```
+
+A host's enums have them too: `Key.members()`, `event.key.name()`. A method
+an enum declares under one of these names is the one called.
+
 ## Null and errors
 
 A `?T` is a `T` or null. The compiler will not let one be used as a `T`

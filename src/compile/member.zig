@@ -23,6 +23,7 @@ const Operand = expr.Operand;
 const binary = @import("binary.zig");
 const names = @import("names.zig");
 const host = @import("host.zig");
+const builtins = @import("builtins.zig");
 const reflect = @import("fluxion_reflect");
 
 pub fn component(name: []const u8) ?u8 {
@@ -141,12 +142,26 @@ fn staticMember(f: *Func, e: *const ast.Expr, dst: ?u8) Error!?Operand {
                 f.release(@max(t.reg, out + 1));
                 return .{ .reg = out, .type = try c.pool.function(m.sig), .temp = dst == null };
             }
+            if (try enumStatic(f, en, g.value.?, g.type, fl.name, dst)) |op| return op;
             const h = try c.err(fl.name.span, "`{s}` has no member `{s}`", .{ en.name, name });
             if (access.nearest(name, en.members)) |near| _ = try h.help("did you mean `{s}`?", .{near});
             return .{ .reg = try expr.target(f, dst), .type = .unknown, .temp = dst == null };
         },
         else => return null,
     }
+}
+
+/// `State.members` and the rest, read off the enum's type `value`: see
+/// `builtins.enumStatic`.
+fn enumStatic(f: *Func, en: *const types.Enum, value: Value, meta: Type, name: ast.Name, dst: ?u8) Error!?Operand {
+    const c = f.comp;
+    const ft = (try builtins.enumStatic(c.pool, en.self_type, name.text)) orelse return null;
+    if (c.recording()) |r| try r.use(.{ .span = name.span, .kind = .builtin_method, .type = ft, .owner = meta });
+    const out = try expr.target(f, dst);
+    const t = try expr.constant(f, null, value, meta);
+    try getProp(f, out, t.reg, name.text);
+    f.release(@max(t.reg, out + 1));
+    return .{ .reg = out, .type = ft, .temp = dst == null };
 }
 
 /// A member of one of the host's enums, named through it: `Key.space`.
@@ -169,6 +184,7 @@ fn hostStatic(f: *Func, e: *const ast.Expr, dst: ?u8) Error!?Operand {
         if (rec) |r| try r.enumMember(fl.name.span, en, i);
         return try expr.constant(f, dst, .enumValue(&en.type_obj.obj, i), en.self_type);
     }
+    if (try enumStatic(f, en, .fromObj(.enum_type, &en.type_obj.obj), try c.pool.meta(t), fl.name, dst)) |op| return op;
     const h = try c.err(fl.name.span, "`{s}` has no member `{s}`", .{ en.name, fl.name.text });
     if (access.nearest(fl.name.text, en.members)) |near| _ = try h.help("did you mean `{s}`?", .{near});
     return .{ .reg = try expr.target(f, dst), .type = .unknown, .temp = dst == null };

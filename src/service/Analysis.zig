@@ -232,6 +232,8 @@ pub fn methodTable(p: *types.Pool, t: Type) []const docs.Entry {
     const base = p.isOptional(t) orelse t;
     if (p.listOf(base) != null) return &docs.list;
     if (p.mapOf(base) != null) return &docs.map;
+    if (p.enumOf(base) != null) return &docs.enum_value;
+    if (p.metaOf(base)) |inner| if (p.enumOf(inner) != null) return &docs.enum_type;
     return switch (base) {
         .string => &docs.string,
         .vec2, .vec3 => &docs.vector,
@@ -254,6 +256,9 @@ pub fn writeBuiltinSig(a: *const Analysis, w: *Writer, receiver: Type, sig: []co
         v = a.typeName(kv.value);
     }
     if (base == .vec2 or base == .vec3) v = a.typeName(base);
+    if (p.metaOf(base)) |inner| if (p.enumOf(inner) != null) {
+        t = a.typeName(inner);
+    };
     try docs.substitute(w, sig, t, k, v);
 }
 

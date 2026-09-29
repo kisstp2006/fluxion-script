@@ -210,6 +210,8 @@ test "completions after a dot are the members of what is before it" {
     try expectOffered(a, "fn f() {\n    math.$\n}\n", &.{ "sqrt", "pi", "random_int" }, &.{});
     try expectOffered(a, "fn f(x: Actor) {\n    print(f\"{x.$}\");\n}\n", &.{"hp"}, &.{});
     try expectOffered(a, "fn f(x: ?Actor) {\n    x.?.$\n}\n", &.{"hp"}, &.{});
+    try expectOffered(a, "fn f() {\n    Mood.$\n}\n", &.{ "calm", "angry", "members", "from_name", "from_int" }, &.{"name"});
+    try expectOffered(a, "fn f() {\n    mood.$\n}\n", &.{"name"}, &.{ "calm", "members" });
 }
 
 test "completions of a name are what is in scope there" {

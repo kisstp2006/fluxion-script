@@ -187,7 +187,7 @@ pub const Panic = struct {
     }
 };
 
-pub const BuiltinType = enum { string, list, map, vec2, vec3, color, signal, task, @"error", int, float, bool };
+pub const BuiltinType = enum { string, list, map, vec2, vec3, color, signal, task, @"error", int, float, bool, enum_value, enum_type };
 
 gpa: Allocator,
 options: Options,

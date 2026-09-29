@@ -245,6 +245,7 @@ const Adder = struct {
         }
         if (p.enumOf(t)) |e| {
             for (e.methods.values()) |m| if (m.sig.has_self) try ad.declared(m.name, .method, try p.function(m.sig), .{ .file = m.file, .span = m.span }, 0);
+            for (docs.enum_value) |d| if (!e.methods.contains(d.name)) try ad.builtinEntry(.builtin_method, t, d);
             return;
         }
         const props: []const []const u8 = switch (t) {
@@ -289,6 +290,7 @@ const Adder = struct {
             } else if (p.enumOf(inner)) |e| {
                 try ad.enumMembers(inner);
                 for (e.methods.values()) |m| try ad.declared(m.name, .method, try p.function(m.sig), .{ .file = m.file, .span = m.span }, 1);
+                for (docs.enum_type) |d| if (!e.methods.contains(d.name)) try ad.builtinEntry(.builtin_method, t, d);
             }
             return;
         }

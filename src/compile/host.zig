@@ -73,7 +73,7 @@ fn builtin(b: Vm.BuiltinType) Type {
         .int => .int,
         .float => .float,
         .bool => .bool,
-        .list, .map => .any,
+        .list, .map, .enum_value, .enum_type => .any,
     };
 }
 

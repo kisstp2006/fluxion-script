@@ -108,6 +108,10 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
                 direct = true;
                 known = .{ .signature = m.sig };
                 if (!m.sig.has_self) _ = try c.err(fl.name.span, "`{s}.{s}` takes no `self`; call it on the type", .{ en.name, name });
+            } else if (try builtins.method(c, obj.type, name, &.{}) != null) {
+                known = .{ .method = .{ .receiver = obj.type, .name = name } };
+                if (rec) |r| try r.use(.{ .span = fl.name.span, .kind = .builtin_method, .type = .any, .owner = obj.type });
+                method_call = true;
             } else {
                 _ = try c.err(fl.name.span, "`{s}` has no method `{s}`", .{ en.name, name });
             }

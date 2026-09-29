@@ -118,6 +118,7 @@ pub fn getProperty(vm: *Vm, v: Value, name: *String, cache: ?*object.Cache) Erro
             const e = v.as(object.EnumType);
             if (e.index(name)) |i| return .enumValue(&e.obj, i);
             if (e.methods.get(name)) |m| return m;
+            if (vm.methods.getPtrConst(.enum_type).get(name)) |m| return .fromObj(.method, &(try make.method(vm, v, m)).obj);
             var names: NameList = .{};
             for (e.members) |m| names.add(m.bytes());
             if (nearest(name.bytes(), names.slice())) |near| {
@@ -167,6 +168,7 @@ pub fn builtinMethod(vm: *Vm, v: Value, name: *String) ?Value {
         .int => .int,
         .float => .float,
         .bool => .bool,
+        .enum_value => .enum_value,
         else => return null,
     };
     return vm.methods.getPtrConst(kind).get(name);
@@ -193,6 +195,7 @@ pub fn getMethod(vm: *Vm, v: Value, name: *String, cache: ?*object.Cache) Error!
         .enum_value => {
             const e = object.EnumType.from(v.obj());
             if (e.methods.get(name)) |m| return .{ .function = m, .with_self = true };
+            if (builtinMethod(vm, v, name)) |m| return .{ .function = m, .with_self = true };
             return vm.fail("{s} has no method `{s}`", .{ e.name.bytes(), name.bytes() });
         },
         .null => return vm.fail("cannot call `{s}` on null", .{name.bytes()}),

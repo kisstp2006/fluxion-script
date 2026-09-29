@@ -30,3 +30,16 @@ print(states);
 const names: [State: string] = {.idle: "resting", .run: "running"};
 print(names[.run], names.get(.jump) orelse "?");
 // out: running ?
+print(State.members(), State.members().len);
+// out: [State.idle, State.run, State.jump, State.dead] 4
+print(state.name(), Dir.left.flip().name());
+// out: run right
+const found: ?State = State.from_name("jump");
+print(found, State.from_name("fly"), State.from_int(11), State.from_int(3));
+// out: State.jump null State.dead null
+for (Dir.members()) |d| print(d.name(), int(d));
+// out: left 0
+// out: right 1
+const all: [State] = State.members();
+print(all.map(fn(s: State) string { return s.name(); }).join(","));
+// out: idle,run,jump,dead

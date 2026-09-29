@@ -150,6 +150,17 @@ pub const color = [_]Entry{
     .{ .name = "hex", .sig = "hex(alpha: bool = true) string", .doc = "`\"#rrggbbaa\"`, or `\"#rrggbb\"` without the alpha: what `color()` reads back." },
 };
 
+pub const enum_value = [_]Entry{
+    .{ .name = "name", .sig = "name() string", .doc = "The member's name as it is written: `\"run\"` for `State.run`." },
+};
+
+/// What an enum has as a type, beside its members and methods.
+pub const enum_type = [_]Entry{
+    .{ .name = "members", .sig = "members() [T]", .doc = "Every member, in the order they are declared." },
+    .{ .name = "from_name", .sig = "from_name(name: string) ?T", .doc = "The member named `name`, as `name()` gives it; null when there is none." },
+    .{ .name = "from_int", .sig = "from_int(value: int) ?T", .doc = "The member whose value is `value`, as `int()` gives it; null when there is none." },
+};
+
 pub const signal = [_]Entry{
     .{ .name = "connect", .sig = "connect(target: fn)", .doc = "Calls `target` with the signal's values each time it is emitted: a function, a method bound to an instance, or a lambda." },
     .{ .name = "once", .sig = "once(target: fn)", .doc = "Calls `target` the next time the signal is emitted, and then no more." },
@@ -305,7 +316,7 @@ test "every builtin method has its entry" {
     const Vm = @import("../vm/Vm.zig");
     const vm = try Vm.create(std.testing.allocator, .{});
     defer vm.destroy();
-    const tables = .{ .{ Vm.BuiltinType.list, &list }, .{ Vm.BuiltinType.map, &map }, .{ Vm.BuiltinType.string, &string }, .{ Vm.BuiltinType.vec2, &vector }, .{ Vm.BuiltinType.vec3, &vector }, .{ Vm.BuiltinType.signal, &signal } };
+    const tables = .{ .{ Vm.BuiltinType.list, &list }, .{ Vm.BuiltinType.map, &map }, .{ Vm.BuiltinType.string, &string }, .{ Vm.BuiltinType.vec2, &vector }, .{ Vm.BuiltinType.vec3, &vector }, .{ Vm.BuiltinType.signal, &signal }, .{ Vm.BuiltinType.enum_value, &enum_value }, .{ Vm.BuiltinType.enum_type, &enum_type } };
     inline for (tables) |pair| {
         var it = vm.methods.getPtrConst(pair[0]).keyIterator();
         while (it.next()) |k| {

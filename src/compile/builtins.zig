@@ -28,6 +28,24 @@ fn sig(pool: *types.Pool, params: []const Type, ret: Type) Allocator.Error!Type 
     return pool.function(s);
 }
 
+/// What an enum has as a type, beside its members and methods - the type of
+/// `State.members` and the rest - or null when it has no such thing.
+pub fn enumStatic(pool: *types.Pool, member: Type, name: []const u8) Allocator.Error!?Type {
+    const eq = std.mem.eql;
+    const a = pool.allocator();
+    const params: []const types.Param, const ret: Type = if (eq(u8, name, "members"))
+        .{ &.{}, try pool.list(member) }
+    else if (eq(u8, name, "from_name"))
+        .{ try a.dupe(types.Param, &.{.{ .name = "name", .type = .string, .has_default = false }}), try pool.optional(member) }
+    else if (eq(u8, name, "from_int"))
+        .{ try a.dupe(types.Param, &.{.{ .name = "value", .type = .int, .has_default = false }}), try pool.optional(member) }
+    else
+        return null;
+    const s = try a.create(types.Signature);
+    s.* = .{ .params = params, .ret = ret };
+    return try pool.function(s);
+}
+
 fn shape(pool: *types.Pool, params: []const Type, ret: Type) Allocator.Error!Shape {
     return .{ .params = try pool.allocator().dupe(Type, params), .ret = ret };
 }
@@ -41,6 +59,10 @@ pub fn method(c: *Compiler, receiver: Type, name: []const u8, args: []const Type
 /// `method`, for those with the types but no compiler: an editor's.
 pub fn methodIn(pool: *types.Pool, receiver: Type, name: []const u8, args: []const Type) Allocator.Error!?Shape {
     const eq = std.mem.eql;
+    if (pool.enumOf(receiver) != null) {
+        if (eq(u8, name, "name")) return try shape(pool, &.{}, .string);
+        return null;
+    }
     if (pool.listOf(receiver)) |t| {
         const opt = try pool.optional(t);
         const self = receiver;
