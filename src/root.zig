@@ -54,6 +54,7 @@ pub const signalsOf = @import("api.zig").signalsOf;
 /// host sets them: `fieldsOf`, `annotationOf`, and `vm.setField`.
 pub const FieldInfo = @import("api.zig").FieldInfo;
 pub const FieldKind = @import("api.zig").FieldKind;
+pub const Shape = @import("api.zig").Shape;
 pub const fieldsOf = @import("api.zig").fieldsOf;
 pub const annotationOf = @import("api.zig").annotationOf;
 pub const enumMember = @import("api.zig").enumMember;
