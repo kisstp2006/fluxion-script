@@ -31,6 +31,17 @@ fn pool(vm: *Vm) *types.Pool {
     return &vm.session.?.pool;
 }
 
+/// Where in the host's types the one is that a script knows as `script` and
+/// makes from a string: see `Vm.HostType.from_string`.
+pub fn fromString(vm: *const Vm, script: *const reflect.Type) ?u16 {
+    for (vm.options.host_types, 0..) |h, i| {
+        if (!h.from_string) continue;
+        const known = h.script orelse continue;
+        if (known.same(script)) return @intCast(i);
+    }
+    return null;
+}
+
 /// The compiler's type of a value of the host's type `t`.
 pub fn typeOf(vm: *Vm, t: *const reflect.Type) Allocator.Error!Type {
     const p = pool(vm);

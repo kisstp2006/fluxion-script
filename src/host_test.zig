@@ -501,6 +501,7 @@ const guard_script =
     \\    @export var mood: Mood = .calm;
     \\    @export var path: [vec2];
     \\    @export var nick: ?string = null;
+    \\    @export var loot: [string: ?Mood];
     \\    var heard = 0;
     \\
     \\    fn watch(self, bell: any) {
@@ -517,12 +518,12 @@ test "a host lists a struct's fields with their annotations, sets them, and wake
     const class = vm.get(m, "Guard").?;
     var buffer: [8]api.FieldInfo = undefined;
     const fields = api.fieldsOf(vm, class, &buffer);
-    try testing.expectEqual(@as(usize, 6), fields.len);
+    try testing.expectEqual(@as(usize, 7), fields.len);
 
     const hp = fields[0];
     try testing.expectEqualStrings("hp", hp.name);
     try testing.expect(hp.exported);
-    try testing.expectEqual(api.FieldKind.int, hp.kind);
+    try testing.expectEqual(api.FieldKind.int, hp.shape.kind);
     try testing.expectEqualStrings("How much it takes.", hp.doc.?);
     try testing.expectEqual(@as(i64, 10), hp.default.asInt());
     const range = api.annotationOf(hp, "range").?;
@@ -530,13 +531,19 @@ test "a host lists a struct's fields with their annotations, sets them, and wake
     try testing.expectEqual(@as(i64, 100), range[1].asInt());
     try testing.expectEqual(@as(usize, 0), api.annotationOf(fields[1], "multiline").?.len);
     try testing.expect(api.annotationOf(fields[1], "range") == null);
-    try testing.expectEqual(api.FieldKind.enum_member, fields[2].kind);
-    try testing.expectEqualStrings("angry", fields[2].members[1].bytes());
-    try testing.expectEqual(api.FieldKind.list, fields[3].kind);
-    try testing.expectEqual(api.FieldKind.vec2, fields[3].element);
-    try testing.expect(fields[4].nullable);
-    try testing.expectEqual(api.FieldKind.string, fields[4].kind);
-    try testing.expect(!fields[5].exported);
+    try testing.expectEqual(api.FieldKind.enum_member, fields[2].shape.kind);
+    try testing.expectEqualStrings("angry", fields[2].shape.enum_type.?.members[1].bytes());
+    try testing.expectEqual(api.FieldKind.list, fields[3].shape.kind);
+    try testing.expectEqual(api.FieldKind.vec2, fields[3].element.kind);
+    try testing.expect(fields[4].shape.nullable);
+    try testing.expectEqual(api.FieldKind.string, fields[4].shape.kind);
+    // A map's keys and values: here, members of an enum or none.
+    try testing.expectEqual(api.FieldKind.map, fields[5].shape.kind);
+    try testing.expectEqual(api.FieldKind.string, fields[5].key.kind);
+    try testing.expectEqual(api.FieldKind.enum_member, fields[5].element.kind);
+    try testing.expect(fields[5].element.nullable);
+    try testing.expect(fields[5].element.enum_type == fields[2].shape.enum_type);
+    try testing.expect(!fields[6].exported);
 
     const guard = try vm.instantiate(class, &.{});
     try vm.hold(guard);
@@ -545,8 +552,17 @@ test "a host lists a struct's fields with their annotations, sets them, and wake
     try testing.expectEqual(@as(i64, 50), vm.getField(guard, "hp").?.asInt());
     try testing.expectError(error.WrongType, vm.setField(guard, "hp", .float(1.5)));
     try testing.expectError(error.NoSuchField, vm.setField(guard, "nope", .int(1)));
-    try vm.setField(guard, "mood", api.enumMember(fields[2].enum_type.?, 1));
-    try vm.setField(guard, "path", try vm.newList(fields[3].element_check, &.{ .vec2(1, 2), .vec2(3, 4) }));
+    try vm.setField(guard, "mood", api.enumMember(fields[2].shape.enum_type.?, 1));
+    try vm.setField(guard, "path", try vm.newList(fields[3].element.check, &.{ .vec2(1, 2), .vec2(3, 4) }));
+    const gold = try vm.string("gold");
+    try vm.pushRoot(gold);
+    const silver = try vm.string("silver");
+    try vm.pushRoot(silver);
+    const loot = try vm.newMap(fields[5].key.check, fields[5].element.check, &.{ gold, silver }, &.{ api.enumMember(fields[2].shape.enum_type.?, 0), .null });
+    vm.popRoot();
+    vm.popRoot();
+    try vm.setField(guard, "loot", loot);
+    try testing.expectEqual(@as(usize, 2), vm.getField(guard, "loot").?.as(object.Map).table.count());
     try testing.expectEqual(@as(usize, 2), vm.getField(guard, "path").?.as(object.List).items.items.len);
     try testing.expectEqual(@as(u32, 1), vm.getField(guard, "mood").?.extra);
 

@@ -374,19 +374,12 @@ pub const FieldInfo = struct {
     /// Marked `@export`: shown by an editor, and saved with a scene.
     exported: bool,
     /// What it holds.
-    kind: FieldKind,
-    /// A `?T`: null too.
-    nullable: bool,
-    /// For a list, what its items are; `any` for a list of anything, and for
-    /// anything but a list.
-    element: FieldKind = .any,
-    /// For a list, what its items are checked against: what `newList` makes
-    /// one the field takes with.
-    element_check: types_mod.Check = .any,
-    /// An enum's member names, for `kind == .enum_member`.
-    members: []const *object.String = &.{},
-    /// The enum, for `kind == .enum_member`: see `enumMember`.
-    enum_type: ?*object.EnumType = null,
+    shape: Shape,
+    /// For a list, what its items are; for a map, what its values are.
+    /// `any` for anything, and for what is neither.
+    element: Shape = .{},
+    /// For a map, what its keys are.
+    key: Shape = .{},
     /// What it starts as when nothing sets it: a list or a map is made
     /// anew for each instance, and this is only its zero then.
     default: Value,
@@ -396,7 +389,23 @@ pub const FieldInfo = struct {
     annotations: ?*object.Map,
 };
 
-pub const FieldKind = enum { any, int, float, bool, string, vec2, vec3, color, list, map, enum_member, instance, function, other };
+pub const FieldKind = enum { any, int, float, bool, string, vec2, vec3, color, list, map, enum_member, host, instance, function, other };
+
+/// What a field holds, or a list's item, or a map's key or value.
+pub const Shape = struct {
+    kind: FieldKind = .any,
+    /// A `?T`: null too.
+    nullable: bool = false,
+    /// What it is checked against: what `newList` and `newMap` make a list
+    /// or a map with, for their items.
+    check: types_mod.Check = .any,
+    /// The enum, for `kind == .enum_member`: its `members` are the names.
+    /// See `enumMember`.
+    enum_type: ?*object.EnumType = null,
+    /// The host's type, for `kind == .host`: what the host's `to_script`
+    /// makes, as `Vm.HostType.script` names it.
+    host: ?*const reflect.Type = null,
+};
 
 /// The fields a struct's instances have, inherited ones first, as written:
 /// neither its signals nor the host's members. As many as fit in `into`.
@@ -406,16 +415,20 @@ pub fn fieldsOf(vm: *const Vm, class: Value, into: []FieldInfo) []FieldInfo {
     for (class.as(object.Class).fields) |f| {
         if (f.is_signal or f.host) continue;
         if (n == into.len) break;
-        const shape = shapeOf(vm, f.check);
+        const plain = unwrapped(vm, f.check);
         into[n] = .{
             .name = f.name.bytes(),
             .exported = f.exported,
-            .kind = shape.kind,
-            .nullable = shape.nullable,
-            .element = shape.element,
-            .element_check = shape.element_check,
-            .members = shape.members,
-            .enum_type = shape.enum_type,
+            .shape = shapeOf(vm, f.check),
+            .element = switch (vm.checks.get(plain) orelse .function) {
+                .list_of => |item| shapeOf(vm, item),
+                .map_of => |kv| shapeOf(vm, kv.value),
+                else => .{},
+            },
+            .key = switch (vm.checks.get(plain) orelse .function) {
+                .map_of => |kv| shapeOf(vm, kv.key),
+                else => .{},
+            },
             .default = f.default,
             .doc = f.doc,
             .annotations = f.annotations,
@@ -425,40 +438,42 @@ pub fn fieldsOf(vm: *const Vm, class: Value, into: []FieldInfo) []FieldInfo {
     return into[0..n];
 }
 
-const Shape = struct {
-    kind: FieldKind,
-    nullable: bool = false,
-    element: FieldKind = .any,
-    element_check: types_mod.Check = .any,
-    members: []const *object.String = &.{},
-    enum_type: ?*object.EnumType = null,
-};
+/// A `?T`'s `T`: what it holds when it holds something.
+fn unwrapped(vm: *const Vm, check: types_mod.Check) types_mod.Check {
+    return switch (vm.checks.get(check) orelse return check) {
+        .optional => |inner| inner,
+        else => check,
+    };
+}
 
+/// A `?T` is `T`'s shape, nullable, and checked as a `?T`.
 fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
     return switch (check) {
         .any => .{ .kind = .any },
-        .int => .{ .kind = .int },
-        .float => .{ .kind = .float },
-        .bool => .{ .kind = .bool },
-        .string => .{ .kind = .string },
-        .vec2 => .{ .kind = .vec2 },
-        .vec3 => .{ .kind = .vec3 },
-        .color => .{ .kind = .color },
-        .list => .{ .kind = .list },
-        .map => .{ .kind = .map },
-        .function => .{ .kind = .function },
+        .int => .{ .kind = .int, .check = check },
+        .float => .{ .kind = .float, .check = check },
+        .bool => .{ .kind = .bool, .check = check },
+        .string => .{ .kind = .string, .check = check },
+        .vec2 => .{ .kind = .vec2, .check = check },
+        .vec3 => .{ .kind = .vec3, .check = check },
+        .color => .{ .kind = .color, .check = check },
+        .list => .{ .kind = .list, .check = check },
+        .map => .{ .kind = .map, .check = check },
+        .function => .{ .kind = .function, .check = check },
         _ => switch (vm.checks.get(check) orelse return .{ .kind = .other }) {
             .optional => |inner| blk: {
                 var shape = shapeOf(vm, inner);
                 shape.nullable = true;
+                shape.check = check;
                 break :blk shape;
             },
-            .list_of => |item| .{ .kind = .list, .element = shapeOf(vm, item).kind, .element_check = item },
-            .map_of => .{ .kind = .map },
-            .class => .{ .kind = .instance },
-            .enum_type => |e| .{ .kind = .enum_member, .members = e.members, .enum_type = e },
-            .function => .{ .kind = .function },
-            .error_union, .host => .{ .kind = .other },
+            .list_of => .{ .kind = .list, .check = check },
+            .map_of => .{ .kind = .map, .check = check },
+            .class => .{ .kind = .instance, .check = check },
+            .enum_type => |e| .{ .kind = .enum_member, .check = check, .enum_type = e },
+            .function => .{ .kind = .function, .check = check },
+            .host => |t| .{ .kind = .host, .check = check, .host = t },
+            .error_union => .{ .kind = .other, .check = check },
         },
         else => .{ .kind = .other },
     };
@@ -478,6 +493,25 @@ pub fn newList(vm: *Vm, element: types_mod.Check, items: []const Value) Allocato
     l.items.appendSliceAssumeCapacity(items);
     const v: Value = .fromObj(.list, &l.obj);
     for (items) |item| vm.heap.barrier(&l.obj, item);
+    return v;
+}
+
+/// A map of `keys` to `values`, one for one, for a field whose keys and
+/// values are checked against `key` and `item`: `FieldInfo.key.check` and
+/// `FieldInfo.element.check`. Each is the host's to have made right; a key
+/// that is NaN is passed over.
+pub fn newMap(vm: *Vm, key: types_mod.Check, item: types_mod.Check, keys: []const Value, values: []const Value) Allocator.Error!Value {
+    std.debug.assert(keys.len == values.len);
+    const m = try make.map(vm, key, item);
+    const v: Value = .fromObj(.map, &m.obj);
+    for (keys, values) |k, each| {
+        m.table.put(vm.gpa, k, each) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.NanKey => continue,
+        };
+        vm.heap.barrier(&m.obj, k);
+        vm.heap.barrier(&m.obj, each);
+    }
     return v;
 }
 

@@ -76,6 +76,9 @@ pub const Op = enum(u8) {
     neg_f,
     /// R[A] = float(R[B]), R[B] known int
     to_float,
+    /// R[A] = the string R[A] made the value of the host's type Bx: see
+    /// `Vm.HostType.from_string`.
+    from_string,
     /// R[A] = R[B] * sC and R[B] % sC, R[B] known int
     muli_i,
     modi_i,

@@ -281,6 +281,18 @@ pub fn toFlux(vm: *Vm, rv: reflect.Value, owner: Value) Error!Value {
     return toFluxAt(vm, rv, owner, .none);
 }
 
+/// The string `text` made a value of the host's type `host` - a path made
+/// the file it names - where the compiler found one standing for it: see
+/// `Vm.HostType.from_string`.
+pub fn fromString(vm: *Vm, host: *const Vm.HostType, text: Value) Error!Value {
+    var storage: [64]u8 align(16) = undefined;
+    if (host.type.size > storage.len) return vm.fail("a {s} is too large to make from a string", .{host.type.name.slice()});
+    @memset(storage[0..host.type.size], 0);
+    const held: reflect.Value = .init(host.type, &storage);
+    try host.from_script(vm, held, text);
+    return host.to_script(vm, held);
+}
+
 /// How the host has a type of its own seen, if it does. See `Vm.HostType`.
 pub fn hostType(vm: *const Vm, t: *const reflect.Type) ?*const Vm.HostType {
     for (vm.options.host_types) |*host| {

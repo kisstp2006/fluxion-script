@@ -22,6 +22,7 @@ const call = @import("call.zig");
 const make = @import("make.zig");
 const types = @import("types.zig");
 const format = @import("format.zig");
+const bridge = @import("../reflect.zig");
 
 pub const RunError = Vm.Error || error{Suspend};
 
@@ -348,6 +349,13 @@ pub fn run(vm: *Vm, f: *Fiber) RunError!Value {
         .to_float => {
             const i = at(ip);
             base[i.a] = .float(@floatFromInt(base[i.b].asInt()));
+            ip += 1;
+            continue :dispatch at(ip).op;
+        },
+        .from_string => {
+            const i = at(ip);
+            frame.ip = ip;
+            base[i.a] = try bridge.fromString(vm, &vm.options.host_types[i.bx()], base[i.a]);
             ip += 1;
             continue :dispatch at(ip).op;
         },

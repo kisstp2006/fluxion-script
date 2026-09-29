@@ -157,6 +157,10 @@ pub const HostType = struct {
     /// and so is what a method gives back - but for a method that can fail,
     /// which fails rather than give none.
     nullable: bool = false,
+    /// Whether a string is one of these too, as `from_script` reads it: a
+    /// file's path. Where a value of the type is wanted, the compiler takes
+    /// a string, and makes it one there - `sprite.texture = "res://a.png"`.
+    from_string: bool = false,
     /// The value as the script's. `vm.host` is the host's, to find its
     /// own things by.
     to_script: *const fn (vm: *Vm, value: reflect.Value) Error!Value,
@@ -340,6 +344,7 @@ pub const emitSignal = api.emitSignal;
 pub const newSignal = api.newSignal;
 pub const newColor = api.newColor;
 pub const newList = api.newList;
+pub const newMap = api.newMap;
 pub const emitSignalValue = api.emitSignalValue;
 pub const setField = api.setField;
 pub const getField = api.getField;

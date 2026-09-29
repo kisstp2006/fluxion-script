@@ -508,6 +508,93 @@ test "a host's own type is seen as the host says" {
     try testing.expectEqual(@as(u32, 4), crowd.leader.index);
 }
 
+/// Which of the pictures one is: to a script a `Picture`, and made from a
+/// string - here, the picture numbered by the string's length.
+const PictureId = extern struct {
+    index: u32 = 0,
+
+    var pictures: [16]Picture = blk: {
+        var all: [16]Picture = undefined;
+        for (&all, 0..) |*p, i| p.* = .{ .index = i };
+        break :blk all;
+    };
+
+    fn toScript(vm: *Vm, value: reflect.Value) Vm.Error!Value {
+        return vm.handle(&pictures[value.asConst(PictureId).?.index]);
+    }
+
+    fn fromScript(vm: *Vm, into: reflect.Value, value: Value) Vm.Error!void {
+        const index: u32 = switch (value.tag) {
+            .string => @intCast(value.as(object.String).bytes().len),
+            .handle => (vm.reflectOf(value) orelse return vm.fail("not a picture", .{})).asConst(Picture).?.index,
+            else => return vm.fail("a picture is named by a string", .{}),
+        };
+        if (index >= pictures.len) return vm.fail("no picture is that long", .{});
+        into.set(PictureId, .{ .index = index }) catch return vm.fail("this picture can only be read", .{});
+    }
+};
+
+const Picture = struct {
+    index: u32,
+
+    pub const reflect_opaque = true;
+    pub const reflect_methods = .{.number};
+
+    pub fn number(self: *const Picture) i32 {
+        return @intCast(self.index);
+    }
+};
+
+const Shelf = struct {
+    cover: PictureId = .{},
+    hung: u32 = 0,
+
+    pub const reflect_methods = .{ .hang = .{reflect.attr.Params{ .names = &.{"picture"} }} };
+
+    pub fn hang(self: *Shelf, picture: PictureId) void {
+        self.hung += picture.index;
+    }
+};
+
+test "a string stands for a host's type that is made from one: where it goes, the compiler makes it one" {
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    const vm = try Vm.create(testing.allocator, .{
+        .out = &out.writer,
+        .gc = .{ .stress = true, .verify = true },
+        .host_types = &.{.{ .type = reflect.typeOf(PictureId), .script = reflect.typeOf(Picture), .from_string = true, .to_script = PictureId.toScript, .from_script = PictureId.fromScript }},
+    });
+    defer vm.destroy();
+    try vm.declareType(reflect.typeOf(Shelf));
+    try vm.declareType(reflect.typeOf(Picture));
+    const m = try vm.load("shelf.flux",
+        \\fn fill(s: Shelf) {
+        \\    s.cover = "four";
+        \\    const p: Picture = "seven!!";
+        \\    s.hang(p);
+        \\    s.hang("xy");
+        \\    const named: string = "three";
+        \\    const maybe: ?Picture = named;
+        \\    print(s.cover.number(), p.number(), maybe.?.number());
+        \\}
+        \\fn tooLong(s: Shelf) { s.hang("far too long a name"); }
+    );
+    var shelf: Shelf = .{};
+    const h = try vm.handle(&shelf);
+    try vm.hold(h);
+    defer vm.release(h);
+
+    _ = try vm.callName(m, "fill", &.{h});
+    try testing.expectEqualStrings("4 7 5\n", out.written());
+    try testing.expectEqual(@as(u32, 4), shelf.cover.index);
+    try testing.expectEqual(@as(u32, 9), shelf.hung);
+
+    // One the host cannot make is the host's to refuse.
+    try testing.expectError(error.Panic, vm.callName(m, "tooLong", &.{h}));
+    try testing.expectEqualStrings("no picture is that long", vm.panic.?.message);
+    vm.clearPanic();
+}
+
 /// A player of clips: its last parameters have defaults, its name is written
 /// through a method, and kept in an array padded with zeros.
 const Deck = struct {

@@ -244,10 +244,12 @@ parameters as written (`by: ?Actor`) and the doc comment. That is what an
 editor's signal panel shows.
 
 `flux.fieldsOf(vm, class, &buffer)` lists its fields the same way, each a
-`flux.FieldInfo`: the name, whether it is marked `@export`, what it holds
-(`kind`, `nullable`, a list's `element`, an enum's `members`), its default
-and its doc comment - what an editor draws a row for without running a
-line of the script. Every other annotation on the field is kept with its
+`flux.FieldInfo`: the name, whether it is marked `@export`, what it holds,
+its default and its doc comment - what an editor draws a row for without
+running a line of the script. What it holds is a `flux.Shape` - its
+`kind`, whether it is `nullable`, the enum or the host's type it is of,
+and the `check` a value of it is made with - and so, for a list, is its
+`element`, and for a map its `key` and its `element`, its values. Every other annotation on the field is kept with its
 arguments, which must be literals: `flux.annotationOf(field, "range")`
 gives `@range(0, 100)`'s two numbers, and an editor decides what `@range`,
 `@multiline`, `@group("Stats")` or its own `@entity` mean.
@@ -263,8 +265,9 @@ for (flux.fieldsOf(vm, class, &found)) |field| {
 
 `vm.setField` and `vm.getField` set and read a field by name from the host,
 checked against its type as a script's assignment would be;
-`flux.enumMember`, `vm.newColor` and `vm.newList` make the values a field
-of those kinds takes.
+`flux.enumMember`, `vm.newColor`, `vm.newList(field.element.check, items)`
+and `vm.newMap(field.key.check, field.element.check, keys, values)` make
+the values a field of those kinds takes.
 
 A host's signals of its own - an engine's `timeout`, heard by a script -
 are `vm.newSignal(name, arity)`: a signal a script connects to, `once`s and
@@ -318,9 +321,13 @@ method gives them defaults (`attr.defaults`) - and of what types.
 - **An enum** of the host's is a Flux enum of the same name and members,
   both ways: `deck.setMode(.loop)`, `if (event.key == .space)`,
   `Key.space`. `HostType.given` says what a converted type is when it is
-  one of the language's own - a texture's path is a `string`, a colour a
-  `color`; `HostType.script` when it is a handle of another of the host's
-  types, as an entity is.
+  one of the language's own - a colour is a `color`; `HostType.script`
+  when it is a handle of another of the host's types, as an entity is.
+  `HostType.from_string` says a string is one too, as the host's
+  `from_script` reads it - a file's path: where one is wanted, the
+  compiler takes a string and makes it one there, so `sprite.texture =
+  "res://hero.png"` and `var icon: Texture = "res://icon.png"` both hold a
+  texture.
 - **A tagged union** is its live arm: the payload's handle, or for an arm
   that holds nothing, the member of its tag naming it (`.borderless`, where
   the union is wanted). `x is KeyEvent` asks which arm it is, and inside

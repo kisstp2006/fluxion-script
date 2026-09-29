@@ -56,7 +56,7 @@ pub fn proto(w: *Writer, vm: *Vm, p: *object.Proto, depth: usize) Writer.Error!v
         try w.print("{d:>4}  {s:<12}", .{ i, @tagName(ins.op) });
         const width = code.width(ins.op);
         switch (ins.op) {
-            .loadk, .getglobal, .setglobal, .jglobal, .closure, .newinstance, .check, .check_param => {
+            .loadk, .getglobal, .setglobal, .jglobal, .closure, .newinstance, .check, .check_param, .from_string => {
                 try w.print(" {d} {d}", .{ ins.a, ins.bx() });
                 if (ins.op == .loadk or ins.op == .newinstance) {
                     try w.writeAll("    ; ");

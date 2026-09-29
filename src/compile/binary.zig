@@ -43,6 +43,11 @@ pub fn coerce(f: *Func, op: Operand, to: Type, span: diag.Span, what: []const u8
         try f.abc(.to_float, out.reg, out.reg, 0);
         return .{ .reg = out.reg, .type = .float, .temp = out.temp };
     }
+    if (from == .string) if (pool.hostOf(to)) |t| if (@import("host.zig").fromString(c.vm, t)) |index| {
+        const out = try owned(f, op);
+        try f.abx(.from_string, out.reg, index);
+        return .{ .reg = out.reg, .type = to, .temp = out.temp };
+    };
     if (pool.isOptional(to)) |child| {
         if (from == .null) return .{ .reg = op.reg, .type = to, .temp = op.temp };
         if (pool.isOptional(from)) |inner| {
