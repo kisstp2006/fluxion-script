@@ -618,10 +618,16 @@ fn callExtension(vm: *Vm, args: []Value) Error!Value {
     return invoke(vm, m, all[0 .. args.len + 1], 1);
 }
 
+/// A list lent to a call as a slice: memory of the host's items, given back
+/// when the call returns.
+const Lent = struct { memory: []u8, alignment: std.mem.Alignment };
+
 /// Calls `m` with `args`, the first the value it belongs to. The last
 /// arguments may be left out when the method gives them defaults
 /// (`attr.defaults`): those are filled in. `implicit` of the arguments
 /// after the first were not the script's to write, as an extension's value.
+/// A list given where it takes a slice - `[vec2]` for `[]const Vec2` - is
+/// lent as one for the call.
 fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value, implicit: usize) Error!Value {
     const f = m.type.info.function;
     const params = f.params.slice();
@@ -643,6 +649,9 @@ fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value, implicit: usiz
     if (params.len > max_args) return vm.fail("`{s}` takes too many arguments to call from a script", .{m.name.slice()});
     var storage: [max_args][64]u8 align(16) = undefined;
     var values: [max_args]reflect.Value = undefined;
+    var lent: [max_args]Lent = undefined;
+    var lent_count: usize = 0;
+    defer for (lent[0..lent_count]) |held| vm.gpa.rawFree(held.memory, held.alignment, @returnAddress());
     values[0] = try selfOf(vm, m, args[0].as(object.Handle));
     var next: usize = 1;
     for (params[1..], 1..) |p, i| {
@@ -677,6 +686,21 @@ fn invoke(vm: *Vm, m: *const reflect.Method, args: []const Value, implicit: usiz
         }
         if (a.tag == .handle and hostType(vm, p.type) == null and (p.type.kind == .pointer or p.type.kind == .@"struct")) {
             values[i] = target(try resolve(vm, a.as(object.Handle)));
+            continue;
+        }
+        if (p.type.kind == .slice and !p.type.isString()) {
+            if (a.tag != .list) return vm.fail("argument {d} of `{s}` is a list, not {s}", .{ i - implicit, m.name.slice(), types.typeName(a) });
+            const item = p.type.info.slice.child;
+            const items = a.as(object.List).items.items;
+            const alignment: std.mem.Alignment = .fromByteUnits(@max(item.alignment, 1));
+            const size = @max(item.size * items.len, 1);
+            const memory = (vm.gpa.rawAlloc(size, alignment, @returnAddress()) orelse return error.OutOfMemory)[0..size];
+            lent[lent_count] = .{ .memory = memory, .alignment = alignment };
+            lent_count += 1;
+            @memset(memory, 0);
+            for (items, 0..) |held, k| try fromFlux(vm, .init(item, @ptrCast(memory.ptr + k * item.size)), held);
+            values[i] = .init(p.type, &storage[i]);
+            values[i].setSliceRaw(memory.ptr, items.len) catch |err| return check(vm, err, p.type, a);
             continue;
         }
         if (p.type.size > 64) return vm.fail("argument {d} of `{s}` is too large to pass from a script", .{ i, m.name.slice() });

@@ -152,6 +152,9 @@ The script does not pass the VM, and a panic the method raises with
 What a method returns by value - a struct, a slice - is copied into the
 script's own, as `vm.valueOf` copies, so it outlives the call. What it
 returns by pointer is a handle into the host's value, as `vm.handle` makes.
+A parameter that is a slice - `[]const Vec2` - takes a list, lent to the call
+as a slice of the items converted and let go of when it returns: keep a copy
+to hold them longer.
 
 A handle points at the value where it was when the handle was made. A value
 that moves - a component in storage that is compacted and grown - wants a

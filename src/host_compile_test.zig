@@ -49,7 +49,16 @@ const Deck = struct {
         .load = .{reflect.attr.Params{ .names = &.{"path"} }},
         .seatOf = .{},
         .takeSeat = .{},
+        .total = .{reflect.attr.Params{ .names = &.{"values"} }},
     };
+
+    /// The numbers of a list a script gives, added up.
+    pub fn total(self: *const Deck, values: []const i32) i32 {
+        _ = self;
+        var sum: i32 = 0;
+        for (values) |v| sum += v;
+        return sum;
+    }
 
     /// The seat it has, or none.
     pub fn seatOf(self: *const Deck) Seat {
@@ -556,6 +565,9 @@ test "where the scripts run: enums, unions, types given, another type's methods 
         \\fn stopped() {
         \\    deck.load("");
         \\}
+        \\fn totalled() int {
+        \\    return deck.total([1, 2, 3]) + deck.total([]);
+        \\}
     );
     const mode = try vm.callName(m, "modes", &.{});
     try testing.expectEqual(Mode.loop, deck.mode);
@@ -574,6 +586,8 @@ test "where the scripts run: enums, unions, types given, another type's methods 
 
     try testing.expectEqual(@as(i64, -2), (try vm.callName(m, "given", &.{})).asInt());
     try testing.expectEqual(@as(i64, 5), (try vm.callName(m, "dealt", &.{})).asInt());
+    // A list, lent to the host as a slice for the call.
+    try testing.expectEqual(@as(i64, 6), (try vm.callName(m, "totalled", &.{})).asInt());
     try testing.expectEqual(@as(i32, 3), table.dealt);
     const err = try vm.callName(m, "caught", &.{});
     try testing.expectEqualStrings("Unreadable", err.as(@import("vm/object.zig").String).bytes());
