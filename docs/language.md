@@ -400,10 +400,10 @@ print(hp.get("cid"), hp.get("cid", 0), "bob" in hp, hp.keys());
 | Lists | |
 | --- | --- |
 | `push(x)` `append(x)` `insert(i, x)` `extend(ys)` | add |
-| `pop()` `first()` `last()` | `?T`: null when empty |
+| `pop()` `first()` `last()` `pick_random()` | `?T`: null when empty |
 | `remove(i)` `remove_value(x)` `clear()` | take out |
 | `contains(x)` `index_of(x)` `count(x)` `is_empty()` | ask |
-| `sort()` `sort_by(\|a, b\| a < b)` `reverse()` | in place |
+| `sort()` `sort_by(\|a, b\| a < b)` `reverse()` `shuffle()` | in place |
 | `reversed()` `copy()` `xs[a..b]` | new lists |
 | `map(f)` `filter(f)` `reduce(f, start)` `find(f)` `any(f)` `all(f)` | with a function |
 | `join(sep)` `sum()` | into one value |
@@ -443,14 +443,19 @@ print(vel.length(), vel.normalized(), pos.distance_to(vel), vel.dot(vec2(1, 0)))
 
 Their methods: `length` `length_squared` `normalized` `dot` `distance_to`
 `distance_squared_to` `direction_to` `lerp` `move_toward` `limit_length`
-`clamp` `min` `max` `abs` `floor` `ceil` `round` `is_zero` `cross`; and for
-`vec2` only `angle` `angle_to` `rotated` `orthogonal`.
+`clamp` `min` `max` `abs` `floor` `ceil` `round` `sign` `snapped` `is_zero`
+`cross` `project`; against a surface's normal `slide` (what is left moving
+along it) and `bounce` (turned back off it), and `reflect` (mirrored across a
+line going that way); and for `vec2` only `angle` `angle_to` `rotated`
+`orthogonal`.
 
 `color("#FF8000")`, `color("#FF800080")`, `color("#F80")`, `color(r, g, b)`,
 `color(r, g, b, a)` or `color(grey)`; `color("royalblue")` by any of the web's
 148 names, whatever their case; and `hsv(h, s, v)` or `hsv(h, s, v, a)`, the
 hue in degrees round the wheel (0 red, 120 green, 240 blue). Its parts are
-`.r .g .b .a`, floats from 0 to 1.
+`.r .g .b .a`, floats from 0 to 1. Its methods give a new colour: `lerp(to,
+weight)`, `darkened(amount)`, `lightened(amount)`, `inverted()`,
+`with_alpha(a)`; and `hex()` is `"#rrggbbaa"` (`hex(false)` `"#rrggbb"`).
 
 ## Tasks and `await`
 
@@ -568,8 +573,9 @@ Everywhere, with nothing imported:
 `min_int`; `sqrt` `pow` `log` `log2` `log10` `exp` `sin` `cos` `tan` `asin`
 `acos` `atan` `atan2` `sinh` `cosh` `tanh`; `floor` `ceil` `round` `trunc`
 (ints: NaN and the infinities are panics), `fract` `sign` `mod` `wrap`;
-`lerp` `inverse_lerp` `remap` `smoothstep` `move_toward`; `deg_to_rad`
-`rad_to_deg`; `is_nan` `is_inf` `approx_eq`; `random` `random_range`
+`lerp` `inverse_lerp` `remap` `smoothstep` `move_toward` `snapped`
+`pingpong`; `deg_to_rad` `rad_to_deg` `angle_difference` `lerp_angle` (the
+short way round); `is_nan` `is_inf` `approx_eq`; `random` `random_range`
 `random_int` `seed`. The random numbers start from the same seed every
 run, so a replay replays; `math.seed(n)` changes that.
 

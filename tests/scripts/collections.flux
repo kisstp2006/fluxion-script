@@ -43,3 +43,9 @@ print("hello world".replace("o", "0"), "abc".contains("b"), "abc".find("c"), "h√
 // out: hell0 w0rld true 2 ["h", "√©", "l", "l", "o"]
 print(range(3), range(1, 7, 2), min(3, 1, 2), max([4, 9, 2]), abs(-5), clamp(15, 0, 10));
 // out: [0, 1, 2] [1, 3, 5] 1 9 5 10
+var deck = [1, 2, 3, 4, 5];
+deck.shuffle();
+const drawn = deck.pick_random();
+deck.sort();
+print(deck, drawn != null and deck.contains(drawn.?), [].pick_random());
+// out: [1, 2, 3, 4, 5] true null

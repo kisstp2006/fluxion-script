@@ -27,19 +27,21 @@ pub fn install(vm: *Vm) std.mem.Allocator.Error!void {
         try native.function(vm, m, field.name, Unary(@enumFromInt(field.value)).call, 1, 1);
     }
     const functions = .{
-        .{ "sqrt", sqrt, 1, 1 },          .{ "pow", pow, 2, 2 },
-        .{ "log", log, 1, 2 },            .{ "atan2", atan2, 2, 2 },
-        .{ "floor", floor, 1, 1 },        .{ "ceil", ceil, 1, 1 },
-        .{ "round", round, 1, 1 },        .{ "trunc", trunc, 1, 1 },
-        .{ "fract", fract, 1, 1 },        .{ "sign", sign, 1, 1 },
-        .{ "lerp", lerp, 3, 3 },          .{ "inverse_lerp", inverseLerp, 3, 3 },
-        .{ "remap", remap, 5, 5 },        .{ "smoothstep", smoothstep, 3, 3 },
-        .{ "deg_to_rad", degToRad, 1, 1 }, .{ "rad_to_deg", radToDeg, 1, 1 },
-        .{ "is_nan", isNan, 1, 1 },       .{ "is_inf", isInf, 1, 1 },
-        .{ "approx_eq", approxEq, 2, 3 }, .{ "mod", mod, 2, 2 },
-        .{ "wrap", wrap, 3, 3 },          .{ "move_toward", moveToward, 3, 3 },
-        .{ "random", random, 0, 0 },      .{ "random_range", randomRange, 2, 2 },
-        .{ "random_int", randomInt, 2, 2 }, .{ "seed", seed, 1, 1 },
+        .{ "sqrt", sqrt, 1, 1 },                        .{ "pow", pow, 2, 2 },
+        .{ "log", log, 1, 2 },                          .{ "atan2", atan2, 2, 2 },
+        .{ "floor", floor, 1, 1 },                      .{ "ceil", ceil, 1, 1 },
+        .{ "round", round, 1, 1 },                      .{ "trunc", trunc, 1, 1 },
+        .{ "fract", fract, 1, 1 },                      .{ "sign", sign, 1, 1 },
+        .{ "lerp", lerp, 3, 3 },                        .{ "inverse_lerp", inverseLerp, 3, 3 },
+        .{ "remap", remap, 5, 5 },                      .{ "smoothstep", smoothstep, 3, 3 },
+        .{ "deg_to_rad", degToRad, 1, 1 },              .{ "rad_to_deg", radToDeg, 1, 1 },
+        .{ "is_nan", isNan, 1, 1 },                     .{ "is_inf", isInf, 1, 1 },
+        .{ "approx_eq", approxEq, 2, 3 },               .{ "mod", mod, 2, 2 },
+        .{ "wrap", wrap, 3, 3 },                        .{ "move_toward", moveToward, 3, 3 },
+        .{ "random", random, 0, 0 },                    .{ "random_range", randomRange, 2, 2 },
+        .{ "random_int", randomInt, 2, 2 },             .{ "seed", seed, 1, 1 },
+        .{ "snapped", snapped, 2, 2 },                  .{ "pingpong", pingpong, 2, 2 },
+        .{ "angle_difference", angleDifference, 2, 2 }, .{ "lerp_angle", lerpAngle, 3, 3 },
     };
     inline for (functions) |f| try native.function(vm, m, f[0], f[1], f[2], f[3]);
 }
@@ -237,6 +239,48 @@ fn moveToward(vm: *Vm, args: []Value) Error!Value {
     const delta = try num(vm, args, 2);
     if (@abs(to - from) <= delta) return .float(to);
     return .float(from + std.math.sign(to - from) * delta);
+}
+
+/// Rounded to the nearest multiple of `step`; ints give an int. A step of
+/// zero leaves the value as it is.
+fn snapped(vm: *Vm, args: []Value) Error!Value {
+    if (args[0].tag == .int and args[1].tag == .int) {
+        const step = args[1].asInt();
+        if (step == 0) return args[0];
+        const x: f64 = @floatFromInt(args[0].asInt());
+        const s: f64 = @floatFromInt(step);
+        return .int(@as(i64, @intFromFloat(@floor(x / s + 0.5))) * step);
+    }
+    const x = try num(vm, args, 0);
+    const step = try num(vm, args, 1);
+    if (step == 0) return .float(x);
+    return .float(@floor(x / step + 0.5) * step);
+}
+
+/// Up from 0 to `length` and back down, over and over, as `value` grows.
+fn pingpong(vm: *Vm, args: []Value) Error!Value {
+    const x = try num(vm, args, 0);
+    const length = try num(vm, args, 1);
+    if (length == 0) return .float(0);
+    const t = (x - length) / (length * 2);
+    return .float(@abs((t - @floor(t)) * length * 2 - length));
+}
+
+/// The shortest turn from one angle to another, in radians: from -pi up to
+/// pi.
+fn difference(from: f64, to: f64) f64 {
+    const d = @rem(to - from, std.math.tau);
+    return @rem(2 * d, std.math.tau) - d;
+}
+
+fn angleDifference(vm: *Vm, args: []Value) Error!Value {
+    return .float(difference(try num(vm, args, 0), try num(vm, args, 1)));
+}
+
+/// `weight` of the way from one angle to another, the short way round.
+fn lerpAngle(vm: *Vm, args: []Value) Error!Value {
+    const from = try num(vm, args, 0);
+    return .float(from + difference(from, try num(vm, args, 1)) * try num(vm, args, 2));
 }
 
 fn random(vm: *Vm, _: []Value) Error!Value {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 //! The types of what is built in: the prelude's functions and the methods
-//! of strings, lists, maps, vectors and signals. With these, `xs.pop()` on
+//! of strings, lists, maps, vectors, colours and signals. With these, `xs.pop()` on
 //! a `[int]` is known to give a `?int`, and a lambda passed to `filter`
 //! knows its parameter's type.
 
@@ -45,13 +45,13 @@ pub fn methodIn(pool: *types.Pool, receiver: Type, name: []const u8, args: []con
         const opt = try pool.optional(t);
         const self = receiver;
         if (eq(u8, name, "push") or eq(u8, name, "append")) return try shape(pool, &.{t}, .void);
-        if (eq(u8, name, "pop") or eq(u8, name, "first") or eq(u8, name, "last")) return try shape(pool, &.{}, opt);
+        if (eq(u8, name, "pop") or eq(u8, name, "first") or eq(u8, name, "last") or eq(u8, name, "pick_random")) return try shape(pool, &.{}, opt);
         if (eq(u8, name, "insert")) return try shape(pool, &.{ .int, t }, .void);
         if (eq(u8, name, "remove")) return try shape(pool, &.{.int}, t);
         if (eq(u8, name, "remove_value") or eq(u8, name, "contains")) return try shape(pool, &.{t}, .bool);
         if (eq(u8, name, "index_of")) return try shape(pool, &.{t}, try pool.optional(.int));
         if (eq(u8, name, "count")) return try shape(pool, &.{t}, .int);
-        if (eq(u8, name, "clear") or eq(u8, name, "reverse") or eq(u8, name, "sort")) return try shape(pool, &.{}, .void);
+        if (eq(u8, name, "clear") or eq(u8, name, "reverse") or eq(u8, name, "sort") or eq(u8, name, "shuffle")) return try shape(pool, &.{}, .void);
         if (eq(u8, name, "reversed") or eq(u8, name, "copy")) return try shape(pool, &.{}, self);
         if (eq(u8, name, "is_empty")) return try shape(pool, &.{}, .bool);
         if (eq(u8, name, "extend")) return try shape(pool, &.{self}, .void);
@@ -102,11 +102,12 @@ pub fn methodIn(pool: *types.Pool, receiver: Type, name: []const u8, args: []con
         },
         .vec2, .vec3 => {
             const v = receiver;
-            const same = &[_][]const u8{ "normalized", "abs", "floor", "ceil", "round" };
+            const same = &[_][]const u8{ "normalized", "abs", "floor", "ceil", "round", "sign" };
             for (same) |n| if (eq(u8, name, n)) return try shape(pool, &.{}, v);
             if (eq(u8, name, "length") or eq(u8, name, "length_squared")) return try shape(pool, &.{}, .float);
             if (eq(u8, name, "dot") or eq(u8, name, "distance_to") or eq(u8, name, "distance_squared_to")) return try shape(pool, &.{v}, .float);
-            if (eq(u8, name, "direction_to") or eq(u8, name, "min") or eq(u8, name, "max")) return try shape(pool, &.{v}, v);
+            const with_other = &[_][]const u8{ "direction_to", "min", "max", "snapped", "project", "slide", "bounce", "reflect" };
+            for (with_other) |n| if (eq(u8, name, n)) return try shape(pool, &.{v}, v);
             if (eq(u8, name, "lerp") or eq(u8, name, "move_toward")) return try shape(pool, &.{ v, .float }, v);
             if (eq(u8, name, "clamp")) return try shape(pool, &.{ v, v }, v);
             if (eq(u8, name, "limit_length")) return try shape(pool, &.{.float}, v);
@@ -118,6 +119,13 @@ pub fn methodIn(pool: *types.Pool, receiver: Type, name: []const u8, args: []con
                 if (eq(u8, name, "rotated")) return try shape(pool, &.{.float}, .vec2);
                 if (eq(u8, name, "orthogonal")) return try shape(pool, &.{}, .vec2);
             }
+        },
+        .color => {
+            if (eq(u8, name, "lerp")) return try shape(pool, &.{ .color, .float }, .color);
+            const by = &[_][]const u8{ "darkened", "lightened", "with_alpha" };
+            for (by) |n| if (eq(u8, name, n)) return try shape(pool, &.{.float}, .color);
+            if (eq(u8, name, "inverted")) return try shape(pool, &.{}, .color);
+            if (eq(u8, name, "hex")) return try shape(pool, &.{.bool}, .string);
         },
         .signal => {
             if (eq(u8, name, "emit")) {
@@ -183,7 +191,7 @@ pub fn mathReturn(name: []const u8, args: []const Type) Type {
     for (bools) |n| if (eq(u8, name, n)) return .bool;
     if (eq(u8, name, "random_int")) return .int;
     if (eq(u8, name, "seed")) return .void;
-    const either = &[_][]const u8{ "pow", "mod", "wrap", "sign" };
+    const either = &[_][]const u8{ "pow", "mod", "wrap", "sign", "snapped" };
     for (either) |n| if (eq(u8, name, n)) return numeric(args);
     return .float;
 }

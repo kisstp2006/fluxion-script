@@ -16,20 +16,21 @@ const Error = native.Error;
 
 pub fn install(vm: *Vm) std.mem.Allocator.Error!void {
     const methods = .{
-        .{ "push", push, 2, 2 },         .{ "append", push, 2, 2 },
-        .{ "pop", pop, 1, 1 },           .{ "insert", insert, 3, 3 },
-        .{ "remove", remove, 2, 2 },     .{ "remove_value", removeValue, 2, 2 },
-        .{ "clear", clear, 1, 1 },       .{ "contains", contains, 2, 2 },
-        .{ "index_of", indexOf, 2, 2 },  .{ "reverse", reverse, 1, 1 },
-        .{ "reversed", reversed, 1, 1 }, .{ "sort", sort, 1, 1 },
-        .{ "sort_by", sortBy, 2, 2 },    .{ "map", mapFn, 2, 2 },
-        .{ "filter", filter, 2, 2 },     .{ "reduce", reduce, 3, 3 },
-        .{ "any", any, 2, 2 },           .{ "all", all, 2, 2 },
-        .{ "find", find, 2, 2 },         .{ "first", first, 1, 1 },
-        .{ "last", last, 1, 1 },         .{ "is_empty", isEmpty, 1, 1 },
-        .{ "copy", copy, 1, 1 },         .{ "extend", extend, 2, 2 },
-        .{ "join", join, 1, 2 },         .{ "sum", sum, 1, 1 },
-        .{ "count", count, 2, 2 },
+        .{ "push", push, 2, 2 },              .{ "append", push, 2, 2 },
+        .{ "pop", pop, 1, 1 },                .{ "insert", insert, 3, 3 },
+        .{ "remove", remove, 2, 2 },          .{ "remove_value", removeValue, 2, 2 },
+        .{ "clear", clear, 1, 1 },            .{ "contains", contains, 2, 2 },
+        .{ "index_of", indexOf, 2, 2 },       .{ "reverse", reverse, 1, 1 },
+        .{ "reversed", reversed, 1, 1 },      .{ "sort", sort, 1, 1 },
+        .{ "sort_by", sortBy, 2, 2 },         .{ "map", mapFn, 2, 2 },
+        .{ "filter", filter, 2, 2 },          .{ "reduce", reduce, 3, 3 },
+        .{ "any", any, 2, 2 },                .{ "all", all, 2, 2 },
+        .{ "find", find, 2, 2 },              .{ "first", first, 1, 1 },
+        .{ "last", last, 1, 1 },              .{ "is_empty", isEmpty, 1, 1 },
+        .{ "copy", copy, 1, 1 },              .{ "extend", extend, 2, 2 },
+        .{ "join", join, 1, 2 },              .{ "sum", sum, 1, 1 },
+        .{ "count", count, 2, 2 },            .{ "shuffle", shuffle, 1, 1 },
+        .{ "pick_random", pickRandom, 1, 1 },
     };
     inline for (methods) |m| try native.method(vm, .list, m[0], m[1], m[2], m[3]);
 }
@@ -105,6 +106,19 @@ fn indexOf(_: *Vm, args: []Value) Error!Value {
 fn reverse(_: *Vm, args: []Value) Error!Value {
     std.mem.reverse(Value, self(args).items.items);
     return .null;
+}
+
+/// The items in a random order, in place, from `math.random`'s numbers: a
+/// replay shuffles the same way.
+fn shuffle(vm: *Vm, args: []Value) Error!Value {
+    vm.rng.random().shuffle(Value, self(args).items.items);
+    return .null;
+}
+
+fn pickRandom(vm: *Vm, args: []Value) Error!Value {
+    const items = self(args).items.items;
+    if (items.len == 0) return .null;
+    return items[vm.rng.random().uintLessThan(usize, items.len)];
 }
 
 fn copyOf(vm: *Vm, l: *List) Error!*List {

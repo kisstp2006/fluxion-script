@@ -67,6 +67,8 @@ pub const list = [_]Entry{
     .{ .name = "find", .sig = "find(test: fn(T) bool) ?T", .doc = "The first item `test` says yes to; null when there is none." },
     .{ .name = "any", .sig = "any(test: fn(T) bool) bool", .doc = "Whether `test` says yes to any item." },
     .{ .name = "all", .sig = "all(test: fn(T) bool) bool", .doc = "Whether `test` says yes to every item." },
+    .{ .name = "shuffle", .sig = "shuffle()", .doc = "Puts the items in a random order, in place, from `math.random`'s numbers." },
+    .{ .name = "pick_random", .sig = "pick_random() ?T", .doc = "An item chosen at random; null when the list is empty." },
 };
 
 pub const map = [_]Entry{
@@ -127,10 +129,25 @@ pub const vector = [_]Entry{
     .{ .name = "ceil", .sig = "ceil() V", .doc = "Each part rounded up." },
     .{ .name = "round", .sig = "round() V", .doc = "Each part rounded to the nearest whole number." },
     .{ .name = "is_zero", .sig = "is_zero() bool", .doc = "Whether every part is zero." },
+    .{ .name = "sign", .sig = "sign() V", .doc = "Each part -1, 0 or 1, as it is below, at or above zero." },
+    .{ .name = "snapped", .sig = "snapped(step: V) V", .doc = "Each part rounded to the nearest multiple of the step's part: a grid. A part of zero leaves its part as it is." },
+    .{ .name = "project", .sig = "project(onto: V) V", .doc = "The part of the vector that goes along `onto`." },
+    .{ .name = "slide", .sig = "slide(normal: V) V", .doc = "What is left moving along a surface with this normal: the part into it taken away." },
+    .{ .name = "bounce", .sig = "bounce(normal: V) V", .doc = "Bounced off a surface with this normal: the part into it turned back." },
+    .{ .name = "reflect", .sig = "reflect(line: V) V", .doc = "Mirrored across a line through the origin going this way." },
     .{ .name = "angle", .sig = "angle() float", .doc = "The angle from the x axis, in radians. `vec2` only." },
     .{ .name = "angle_to", .sig = "angle_to(other: vec2) float", .doc = "The angle to `other`, in radians. `vec2` only." },
     .{ .name = "rotated", .sig = "rotated(radians: float) vec2", .doc = "Turned by an angle. `vec2` only." },
     .{ .name = "orthogonal", .sig = "orthogonal() vec2", .doc = "Turned a quarter turn. `vec2` only." },
+};
+
+pub const color = [_]Entry{
+    .{ .name = "lerp", .sig = "lerp(to: color, weight: float) color", .doc = "The colour `weight` of the way to `to`, alpha too: 0 is this one, 1 is `to`." },
+    .{ .name = "darkened", .sig = "darkened(amount: float) color", .doc = "Red, green and blue `amount` of the way to black." },
+    .{ .name = "lightened", .sig = "lightened(amount: float) color", .doc = "Red, green and blue `amount` of the way to white." },
+    .{ .name = "inverted", .sig = "inverted() color", .doc = "Red, green and blue each taken from 1; the alpha as it is." },
+    .{ .name = "with_alpha", .sig = "with_alpha(a: float) color", .doc = "The same colour with this alpha: 0 clear, 1 solid." },
+    .{ .name = "hex", .sig = "hex(alpha: bool = true) string", .doc = "`\"#rrggbbaa\"`, or `\"#rrggbb\"` without the alpha: what `color()` reads back." },
 };
 
 pub const signal = [_]Entry{
@@ -203,6 +220,10 @@ pub const math = [_]Entry{
     .{ .name = "random_range", .sig = "random_range(lo: float, hi: float) float", .doc = "A random float from `lo` up to `hi`." },
     .{ .name = "random_int", .sig = "random_int(lo: int, hi: int) int", .doc = "A random int from `lo` to `hi`, both included." },
     .{ .name = "seed", .sig = "seed(n: int)", .doc = "Starts the random numbers again from `n`." },
+    .{ .name = "snapped", .sig = "snapped(value: float, step: float) float", .doc = "Rounded to the nearest multiple of `step`: `snapped(13, 5)` is 15. Ints give an int; a step of zero changes nothing." },
+    .{ .name = "pingpong", .sig = "pingpong(value: float, length: float) float", .doc = "Up from 0 to `length` and back down again, over and over, as `value` grows." },
+    .{ .name = "angle_difference", .sig = "angle_difference(from: float, to: float) float", .doc = "The shortest turn from one angle to the other, in radians, from -pi up to pi." },
+    .{ .name = "lerp_angle", .sig = "lerp_angle(from: float, to: float, weight: float) float", .doc = "The angle `weight` of the way from `from` to `to`, going the short way round." },
 };
 
 pub const json = [_]Entry{

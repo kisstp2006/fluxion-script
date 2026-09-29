@@ -235,6 +235,7 @@ pub fn methodTable(p: *types.Pool, t: Type) []const docs.Entry {
     return switch (base) {
         .string => &docs.string,
         .vec2, .vec3 => &docs.vector,
+        .color => &docs.color,
         .signal => &docs.signal,
         else => &.{},
     };
