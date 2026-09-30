@@ -324,6 +324,8 @@ pub fn extend(vm: *Vm, of: *const reflect.Type, by: *const reflect.Type, receive
     errdefer vm.gpa.destroy(e);
     e.* = .{ .of = of, .by = by, .receiver = receiver };
     try vm.extensions.append(vm.gpa, e);
+    // A name found on `of` before may be one of these now.
+    vm.found_members = @splat(.{});
 }
 
 /// A value every module sees as `name` without importing anything: an

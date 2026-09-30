@@ -12,6 +12,7 @@ const types = @import("types.zig");
 const Fiber = @import("fiber.zig").Fiber;
 const gc = @import("gc.zig");
 const reflect = @import("fluxion_reflect");
+const bridge = @import("../reflect.zig");
 
 pub const Value = value_mod.Value;
 pub const Tag = value_mod.Tag;
@@ -216,6 +217,9 @@ reached_types: std.StringHashMapUnmanaged(bool) = .empty,
 /// The host's enums as scripts have them, made as they are first met.
 host_enums: std.ArrayList(*object.EnumType) = .empty,
 extensions: std.ArrayList(*Extension) = .empty,
+/// What names are on the host's types, found once each: see
+/// `reflect.memberOf`. Emptied when an extension is added.
+found_members: [bridge.member_slots]bridge.Member = @splat(.{}),
 /// One native for each method an extension gives, as `reflect_methods`.
 extension_methods: std.AutoHashMapUnmanaged(*const reflect.Method, *object.Native) = .empty,
 hooks: std.ArrayList(Hook) = .empty,

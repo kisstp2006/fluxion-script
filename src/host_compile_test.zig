@@ -715,3 +715,22 @@ test "an editor is offered a host's members, and shown its methods' signatures a
     try testing.expectEqualStrings("Deck.speed: float", on_speed.code);
     try testing.expectEqualStrings("How fast it plays", on_speed.doc.?);
 }
+
+test "what a name is on a host type is found once, and found again once an extension is added" {
+    var table: Table = .{};
+    const vm = try Vm.create(testing.allocator, .{});
+    defer vm.destroy();
+    try declare(vm);
+    const deck = reflect.typeOf(Deck);
+
+    const before = bridge.memberOf(vm, deck, "dealOut");
+    try testing.expect(before.own == null and before.extension == null and before.field == null);
+    try testing.expectEqual(@as(?u32, 1), bridge.memberOf(vm, deck, "speed").field);
+    const play = bridge.memberOf(vm, deck, "play").own.?;
+    try testing.expectEqual(play, bridge.memberOf(vm, deck, "play").own.?);
+
+    // The table's methods are the deck's now: a name found as nothing is
+    // looked for again.
+    try vm.extend(deck, reflect.typeOf(Table), try vm.handle(&table));
+    try testing.expect(bridge.memberOf(vm, deck, "dealOut").extension != null);
+}

@@ -461,12 +461,56 @@ fn target(rv: reflect.Value) reflect.Value {
     return rv;
 }
 
+/// What a name is on one of the host's types: a method of its own, one an
+/// extension gives it, a field - any, all or none of these. Found once for
+/// each type and name and kept in the VM (`Vm.found_members`), since a script
+/// reads a component's fields and calls its methods by name, frame after
+/// frame, and a type's names are found one by one.
+pub const Member = struct {
+    type: ?*const reflect.Type = null,
+    len: u8 = 0,
+    name: [member_name_max]u8 = undefined,
+    own: ?*const reflect.Method = null,
+    extension: ?Extended = null,
+    field: ?u32 = null,
+
+    pub const Extended = struct { method: *const reflect.Method, by: *Vm.Extension };
+};
+
+/// How many `Member`s the VM keeps, and the longest name one keeps: a
+/// longer one is found again each time.
+pub const member_slots = 512;
+const member_name_max = 32;
+
+/// What `name` is on `t`: see `Member`.
+pub fn memberOf(vm: *Vm, t: *const reflect.Type, name: []const u8) Member {
+    const at = ((@intFromPtr(t) >> 4) ^ (@intFromPtr(name.ptr) *% 0x9E37_79B9_7F4A_7C15 >> 7)) % member_slots;
+    const spot = &vm.found_members[at];
+    if (spot.type == t and spot.len == name.len and std.mem.eql(u8, spot.name[0..spot.len], name)) return spot.*;
+
+    var found: Member = .{ .own = t.method(name) };
+    for (vm.extensions.items) |ext| {
+        if (!ext.of.same(t)) continue;
+        const m = extensionMethod(vm, ext, name) orelse continue;
+        found.extension = .{ .method = m, .by = ext };
+        break;
+    }
+    if (t.fieldIndex(name)) |i| found.field = @intCast(i);
+    if (name.len <= member_name_max) {
+        found.type = t;
+        found.len = @intCast(name.len);
+        @memcpy(found.name[0..name.len], name);
+        spot.* = found;
+    }
+    return found;
+}
+
 pub fn get(vm: *Vm, h: Value, name: []const u8) Error!Value {
     const rv = target(try resolve(vm, h.as(object.Handle)));
     if (std.mem.eql(u8, name, "len") and (rv.type.kind == .slice or rv.type.kind == .array)) {
         return .int(@intCast(rv.len() catch 0));
     }
-    const i = rv.type.fieldIndex(name) orelse {
+    const i = memberOf(vm, rv.type, name).field orelse {
         if (vm.options.host_member) |hook| if (try hook(vm, h, name)) |v| return v;
         return noField(vm, rv.type, name);
     };
@@ -476,14 +520,15 @@ pub fn get(vm: *Vm, h: Value, name: []const u8) Error!Value {
 
 pub fn set(vm: *Vm, h: Value, name: []const u8, v: Value) Error!void {
     const rv = target(try resolve(vm, h.as(object.Handle)));
+    const at = memberOf(vm, rv.type, name).field;
     // A field with a setter is written through it: the change has more to
     // do than be stored.
-    if (rv.type.field(name)) |field| if (field.attribute(reflect.attr.Setter)) |setter| {
+    if (at) |i| if (rv.type.fields()[i].attribute(reflect.attr.Setter)) |setter| {
         const m = rv.type.method(setter.method) orelse return vm.fail("{s}.{s} is written through `{s}`, which a script cannot call", .{ rv.type.name.slice(), name, setter.method });
         _ = try invoke(vm, m, &.{ h, v }, 0);
         return;
     };
-    const f = rv.field(name) catch {
+    const f = (if (at) |i| rv.fieldAt(i) else error.NoSuchField) catch {
         if (vm.options.host_set_member) |hook| if (try hook(vm, h, name, v)) return;
         return noField(vm, rv.type, name);
     };
@@ -504,13 +549,10 @@ pub fn index(vm: *Vm, h: Value, i: Value) Error!Value {
 /// given first, made once per method: one of the handle's type, of the
 /// union whose arm it is, or one another type gives it (see `extend`).
 pub fn method(vm: *Vm, h: Value, name: []const u8) Error!?Value {
-    const held = heldType(h.as(object.Handle));
-    if (held.method(name) orelse unionMethod(h.as(object.Handle), name)) |m| return try nativeFor(vm, m, &vm.reflect_methods, callMethod, null);
-    for (vm.extensions.items) |ext| {
-        if (!ext.of.same(held)) continue;
-        const m = extensionMethod(vm, ext, name) orelse continue;
-        return try nativeFor(vm, m, &vm.extension_methods, callExtension, ext);
-    }
+    const held = h.as(object.Handle);
+    const found = memberOf(vm, heldType(held), name);
+    if (found.own orelse unionMethod(held, name)) |m| return try nativeFor(vm, m, &vm.reflect_methods, callMethod, null);
+    if (found.extension) |e| return try nativeFor(vm, e.method, &vm.extension_methods, callExtension, e.by);
     return null;
 }
 
