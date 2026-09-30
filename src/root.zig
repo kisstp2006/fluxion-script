@@ -17,6 +17,7 @@ pub const Vm = @import("vm/Vm.zig");
 pub const Value = @import("vm/value.zig").Value;
 pub const object = @import("vm/object.zig");
 pub const Compiler = @import("compile/Compiler.zig");
+pub const image = @import("image.zig");
 
 pub const run = @import("vm/call.zig").runModule;
 pub const call = @import("vm/call.zig").call;
@@ -89,6 +90,7 @@ test {
     _ = os;
     _ = @import("reflect_test.zig");
     _ = @import("host_compile_test.zig");
+    _ = @import("image_test.zig");
     _ = service;
     _ = @import("service/complete.zig");
     _ = lsp;

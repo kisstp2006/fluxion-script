@@ -95,16 +95,18 @@ pub fn isOf(v: Value, t: *const reflect.Type) bool {
 /// The Flux enum a host's enum is to scripts: one for each, made when a
 /// value of it first crosses, with its members' names and numbers.
 pub fn enumType(vm: *Vm, t: *const reflect.Type) Error!*object.EnumType {
-    return fluxEnum(vm, t, nameOf(t));
+    return enumNamed(vm, t, nameOf(t));
 }
 
 /// The Flux enum of a tagged union's tag, named as the union is: its arms
 /// that hold nothing are its members.
 pub fn tagType(vm: *Vm, u: *const reflect.Type) Error!*object.EnumType {
-    return fluxEnum(vm, u.info.@"union".tag.?, nameOf(u));
+    return enumNamed(vm, u.info.@"union".tag.?, nameOf(u));
 }
 
-fn fluxEnum(vm: *Vm, t: *const reflect.Type, name: []const u8) Error!*object.EnumType {
+/// The Flux enum of the host's enum `t`, named `name` if it is made now: see
+/// `enumType` and `tagType`, and `image.zig`, which knows it by both.
+pub fn enumNamed(vm: *Vm, t: *const reflect.Type, name: []const u8) Error!*object.EnumType {
     for (vm.host_enums.items) |e| if (e.host.?.same(t)) return e;
     vm.heap.paused += 1;
     defer vm.heap.paused -= 1;

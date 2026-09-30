@@ -322,6 +322,7 @@ being built, never for a program that depends on it.
 - [x] `math`, `json`, `os`, and modules of the host's own
 - [x] Embedding from Zig and C; reflection of the host's structs; budgets, interrupts and a memory ceiling
 - [x] Reloading while running, with instances moved to new layouts
+- [x] Modules saved compiled, without their source, and loaded again where the program ships: `vm.saveCompiled`
 - [x] What an engine asks of it: a struct's fields and annotations for an inspector, set and read by name; signals of the host's own, awaited like a script's; members the host supplies - in the Fluxion engine and its editor
 - [x] The `flux` command, with `--watch` and JSON diagnostics
 - [x] Tested on Windows and Linux (x86-64), and as WebAssembly under WASI: every test script prints the same on each. It builds for ARM Linux and macOS.

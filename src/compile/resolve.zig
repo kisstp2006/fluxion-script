@@ -197,6 +197,11 @@ fn importModule(c: *Compiler, path: []const u8, span: diag.Span) Error!?*types.M
     defer vm.gpa.free(loaded.name);
     defer vm.gpa.free(loaded.source);
     if (c.session.modules.get(loaded.name)) |existing| return existing;
+    if (@import("../image.zig").isImage(loaded.source)) {
+        _ = try (try c.err(span, "`{s}` is compiled, and what is compiled from source imports only source", .{path}))
+            .note("a compiled module is imported by one compiled with it", .{});
+        return null;
+    }
     _ = Compiler.compileModule(vm, loaded.name, loaded.source, c.diags) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.CompileFailed => {

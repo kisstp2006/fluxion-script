@@ -487,6 +487,44 @@ The report says how many modules were compiled again, which declaration's
 shape changed (if one did), how many instances moved and tasks stopped; its
 warnings are in `vm.diagnostics`. From C, `flux_reload` does the same.
 
+## Shipping a script compiled
+
+```zig
+const module = try vm.compile("res://door.flux", source);
+const bytes = try vm.saveCompiled(module, gpa, .{ .lines = true });
+defer gpa.free(bytes);
+// ... and in the program that ships, a VM set up the same way:
+const loaded = try vm.compile("res://door.flux", bytes); // or vm.load
+```
+
+`saveCompiled` writes what `compile` made - the module's code, constants,
+structs, enums and functions - and none of its source: no comments, no
+layout, and with `.lines = false` not even where a line began, so an error
+names only the function it was in. `compile` and `load` know such bytes by
+their first four, `FXSC`, and load them instead of compiling: nothing is
+parsed or checked again. A host that hands the VM a file's bytes needs to
+know nothing more.
+
+**What the module does not own is written by name** and found again where it
+is loaded: another module's struct, enum or function by the module's name and
+its own; what the host put in the prelude by its name there; one of the
+host's types by its reflected name. So the loading VM must be set up as the
+saving one was - the same host types declared, the same globals given - and
+it names what it cannot find instead of guessing. The modules a saved one
+imports are loaded first, through the loader, which must give them saved
+too: a module compiled from source cannot import a saved one.
+
+**A module is saved as compile left it**, before it runs: once it has run
+its variables hold what running gave them, and `saveCompiled` refuses with
+`error.Unsaveable`, the reason in `vm.diagnostics`.
+
+**An image is for this version of the language.** Its header carries a hash
+of the instruction set, and a VM whose instructions have changed refuses it.
+Loading checks that an image holds together - every object, check and type it
+refers to is one it has, cut short or changed anywhere it says so - but not
+that its code is code the compiler could have made. Treat an image as code:
+load the ones your program made, or ones that came to it signed.
+
 ## From C
 
 ```c

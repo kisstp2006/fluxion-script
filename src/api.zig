@@ -21,16 +21,29 @@ const reload_mod = @import("reload.zig");
 const types_mod = @import("vm/types.zig");
 const reflect = @import("fluxion_reflect");
 const bridge = @import("reflect.zig");
+const image = @import("image.zig");
 
 pub const CompileError = error{ CompileFailed, OutOfMemory };
 pub const LoadError = error{ CompileFailed, Panic, OutOfMemory };
 
-/// Compiles a module. On `error.CompileFailed` the reasons are in
-/// `vm.diagnostics`, which each compile starts afresh.
+/// Compiles a module - or, when `source` is an image `saveCompiled` made,
+/// loads it and the modules it imports. On `error.CompileFailed` the reasons
+/// are in `vm.diagnostics`, which each compile starts afresh.
 pub fn compile(vm: *Vm, name: []const u8, source: []const u8) CompileError!*object.Module {
     vm.diagnostics.deinit();
     vm.diagnostics = .init(vm.gpa);
+    if (image.isImage(source)) return image.load(vm, name, source);
     return Compiler.compileModule(vm, name, source, &vm.diagnostics);
+}
+
+/// A compiled module as bytes, for `compile` to load again in a VM set up
+/// the way this one is - with none of its source. See `image.zig`. The
+/// caller frees them. On `error.Unsaveable` the reason is in
+/// `vm.diagnostics`.
+pub fn saveCompiled(vm: *Vm, module: *object.Module, gpa: Allocator, options: image.SaveOptions) image.SaveError![]u8 {
+    vm.diagnostics.deinit();
+    vm.diagnostics = .init(vm.gpa);
+    return image.save(vm, module, gpa, options);
 }
 
 pub const ReloadError = reload_mod.Error;

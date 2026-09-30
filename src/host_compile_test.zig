@@ -529,54 +529,58 @@ test "a method the host calls is checked, and its parameters typed" {
     });
 }
 
-test "where the scripts run: enums, unions, types given, another type's methods and errors cross as they were compiled" {
+const run_source =
+    \\fn modes() Mode {
+    \\    deck.setMode(.loop);
+    \\    return deck.mode;
+    \\}
+    \\fn kind(e: Input) int {
+    \\    if (e is KeyPress) return e.code;
+    \\    if (e is Move) return int(e.dx);
+    \\    return -1;
+    \\}
+    \\fn keyed(e: Input) bool {
+    \\    return e.isKey();
+    \\}
+    \\fn idled(e: Input) bool {
+    \\    return e == .idle;
+    \\}
+    \\const choices: [Input] = [.idle, .idle];
+    \\fn chosen(e: Input) bool {
+    \\    return e == choices[0] and !(e is KeyPress);
+    \\}
+    \\fn given() int {
+    \\    const c = deck.get(Card);
+    \\    c.flip();
+    \\    return c.value;
+    \\}
+    \\fn dealt() int {
+    \\    deck.dealOut(3);
+    \\    return deck.countOf();
+    \\}
+    \\fn caught() string {
+    \\    const c = deck.card(-1);
+    \\    return c.read() catch |err| err.name;
+    \\}
+    \\fn stopped() {
+    \\    deck.load("");
+    \\}
+    \\fn totalled() int {
+    \\    return deck.total([1, 2, 3]) + deck.total([]);
+    \\}
+;
+
+/// A VM with the host's types declared, the deck and the table given.
+fn hostVm(deck: *Deck, table: *Table) !*Vm {
     const vm = try Vm.create(testing.allocator, .{});
-    defer vm.destroy();
+    errdefer vm.destroy();
     try declare(vm);
-    var deck: Deck = .{ .count = 2 };
-    var table: Table = .{};
-    try vm.defineGlobal("deck", try vm.handle(&deck), null);
-    try vm.extend(reflect.typeOf(Deck), reflect.typeOf(Table), try vm.handle(&table));
-    const m = try vm.load("run.flux",
-        \\fn modes() Mode {
-        \\    deck.setMode(.loop);
-        \\    return deck.mode;
-        \\}
-        \\fn kind(e: Input) int {
-        \\    if (e is KeyPress) return e.code;
-        \\    if (e is Move) return int(e.dx);
-        \\    return -1;
-        \\}
-        \\fn keyed(e: Input) bool {
-        \\    return e.isKey();
-        \\}
-        \\fn idled(e: Input) bool {
-        \\    return e == .idle;
-        \\}
-        \\const choices: [Input] = [.idle, .idle];
-        \\fn chosen(e: Input) bool {
-        \\    return e == choices[0] and !(e is KeyPress);
-        \\}
-        \\fn given() int {
-        \\    const c = deck.get(Card);
-        \\    c.flip();
-        \\    return c.value;
-        \\}
-        \\fn dealt() int {
-        \\    deck.dealOut(3);
-        \\    return deck.countOf();
-        \\}
-        \\fn caught() string {
-        \\    const c = deck.card(-1);
-        \\    return c.read() catch |err| err.name;
-        \\}
-        \\fn stopped() {
-        \\    deck.load("");
-        \\}
-        \\fn totalled() int {
-        \\    return deck.total([1, 2, 3]) + deck.total([]);
-        \\}
-    );
+    try vm.defineGlobal("deck", try vm.handle(deck), null);
+    try vm.extend(reflect.typeOf(Deck), reflect.typeOf(Table), try vm.handle(table));
+    return vm;
+}
+
+fn expectRuns(vm: *Vm, m: *@import("vm/object.zig").Module, deck: *Deck, table: *Table) !void {
     const mode = try vm.callName(m, "modes", &.{});
     try testing.expectEqual(Mode.loop, deck.mode);
     try testing.expectEqualStrings("Mode", @import("vm/types.zig").typeName(mode));
@@ -602,6 +606,34 @@ test "where the scripts run: enums, unions, types given, another type's methods 
     try testing.expectError(error.Panic, vm.callName(m, "stopped", &.{}));
     try testing.expect(std.mem.indexOf(u8, vm.panic.?.message, "`load` failed: error.NotFound") != null);
     vm.clearPanic();
+}
+
+test "where the scripts run: enums, unions, types given, another type's methods and errors cross as they were compiled" {
+    var deck: Deck = .{ .count = 2 };
+    var table: Table = .{};
+    const vm = try hostVm(&deck, &table);
+    defer vm.destroy();
+    const m = try vm.load("run.flux", run_source);
+    try expectRuns(vm, m, &deck, &table);
+}
+
+test "and saved compiled, loaded in a VM set up the same way: the host's enums, unions and types found again by name" {
+    var first_deck: Deck = .{};
+    var first_table: Table = .{};
+    const first = try hostVm(&first_deck, &first_table);
+    defer first.destroy();
+    const compiled = try first.compile("run.flux", run_source);
+    for ([_]bool{ true, false }) |lines| {
+        const saved = try first.saveCompiled(compiled, testing.allocator, .{ .lines = lines });
+        defer testing.allocator.free(saved);
+
+        var deck: Deck = .{ .count = 2 };
+        var table: Table = .{};
+        const vm = try hostVm(&deck, &table);
+        defer vm.destroy();
+        const m = try vm.load("run.flux", saved);
+        try expectRuns(vm, m, &deck, &table);
+    }
 }
 
 fn completions(arena: std.mem.Allocator, source: []const u8) ![]const @import("service/complete.zig").Item {

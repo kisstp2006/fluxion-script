@@ -295,6 +295,7 @@ const Session = @import("../compile/Session.zig");
 const api = @import("../api.zig");
 
 pub const compile = api.compile;
+pub const saveCompiled = api.saveCompiled;
 pub const reload = api.reload;
 pub const moduleNamed = api.moduleNamed;
 pub const run = api.run;

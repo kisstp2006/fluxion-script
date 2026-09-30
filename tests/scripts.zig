@@ -52,15 +52,43 @@ fn expectations(gpa: std.mem.Allocator, source: []const u8) !Expect {
     return e;
 }
 
-/// Runs a script twice: as it is, and collecting everything on every
-/// allocation, which is how a value nothing roots shows itself.
+/// Runs a script four times: as it is; collecting everything on every
+/// allocation, which is how a value nothing roots shows itself; and saved
+/// compiled and loaded in another VM, with its lines and without, which must
+/// do just what the source did.
 fn check(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8, report: *std.Io.Writer) !bool {
     const source = try dir.readFileAlloc(io, name, gpa, .limited(1 << 20));
     defer gpa.free(source);
-    const normal = try checkOnce(gpa, source, name, false, report);
-    const stressed = try checkOnce(gpa, source, name, true, report);
+    const normal = try checkOnce(gpa, source, name, false, .source, report);
+    const stressed = try checkOnce(gpa, source, name, true, .source, report);
     if (normal and !stressed) try report.print("{s}: fails only when the collector runs on every allocation\n", .{name});
-    return normal and stressed;
+    const saved = try checkOnce(gpa, source, name, true, .image, report);
+    const stripped = try checkOnce(gpa, source, name, false, .stripped, report);
+    if (normal and !(saved and stripped)) try report.print("{s}: fails only when it is saved compiled and loaded again\n", .{name});
+    return normal and stressed and saved and stripped;
+}
+
+/// Where the module a check runs comes from.
+const From = enum { source, image, stripped };
+
+/// The module compiled in a VM of its own, saved, and loaded into `vm`:
+/// null when it does not compile, which the source run reports.
+fn loadSaved(gpa: std.mem.Allocator, vm: *flux.Vm, source: []const u8, name: []const u8, lines: bool, report: *std.Io.Writer) !?*flux.object.Module {
+    const first = try flux.Vm.create(gpa, .{});
+    defer first.destroy();
+    const compiled = first.compile(name, source) catch return null;
+    const bytes = first.saveCompiled(compiled, gpa, .{ .lines = lines }) catch |err| {
+        try report.print("\n{s}: cannot be saved compiled ({s})\n", .{ name, @errorName(err) });
+        try first.writeDiagnostics(report, .{});
+        return err;
+    };
+    defer gpa.free(bytes);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "// out:") == null);
+    return vm.compile(name, bytes) catch |err| {
+        try report.print("\n{s}: cannot be loaded compiled ({s})\n", .{ name, @errorName(err) });
+        try vm.writeDiagnostics(report, .{});
+        return err;
+    };
 }
 
 const TaskPanics = struct {
@@ -79,9 +107,11 @@ const TaskPanics = struct {
     }
 };
 
-fn checkOnce(gpa: std.mem.Allocator, source: []const u8, name: []const u8, stress: bool, report: *std.Io.Writer) !bool {
+fn checkOnce(gpa: std.mem.Allocator, source: []const u8, name: []const u8, stress: bool, from: From, report: *std.Io.Writer) !bool {
     var want = try expectations(gpa, source);
     defer want.deinit(gpa);
+    // What does not compile has nothing to save.
+    if (from != .source and want.errors.items.len != 0) return true;
 
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -94,7 +124,10 @@ fn checkOnce(gpa: std.mem.Allocator, source: []const u8, name: []const u8, stres
     defer diags.deinit();
 
     var ok = true;
-    const module = flux.Compiler.compileModule(vm, name, source, &diags) catch null;
+    const module = switch (from) {
+        .source => flux.Compiler.compileModule(vm, name, source, &diags) catch null,
+        .image, .stripped => loadSaved(gpa, vm, source, name, from == .image, report) catch return false,
+    };
     var got_errors: std.ArrayList([]const u8) = .empty;
     defer got_errors.deinit(gpa);
     var got_warnings: std.ArrayList([]const u8) = .empty;
@@ -104,7 +137,8 @@ fn checkOnce(gpa: std.mem.Allocator, source: []const u8, name: []const u8, stres
         .warning => try got_warnings.append(gpa, d.message),
         .note => {},
     };
-    if (!matches(want.errors.items, got_errors.items) or !matches(want.warnings.items, got_warnings.items)) {
+    // A loaded image says nothing: its warnings were the compile's.
+    if (from == .source and (!matches(want.errors.items, got_errors.items) or !matches(want.warnings.items, got_warnings.items))) {
         ok = false;
         try report.print("\n{s}: the diagnostics differ\n", .{name});
         try flux.diag.render.all(report, &vm.sources, &diags, .{});
