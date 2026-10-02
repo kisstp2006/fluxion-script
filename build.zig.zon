@@ -29,8 +29,8 @@
         // only when this is the package being built or a dependant asks
         // for `.code = true`.
         .fluxion_code = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-code#1ffd8687ae5cae62467f996c60b47481ad4f3f3a",
-            .hash = "fluxion_code-0.1.0-hzHnKHWrAwDQnR6WBBT4gP3JdfSzYv4ohF7ZW23jtYmx",
+            .url = "git+https://github.com/kisstp2006/fluxion-code#96f22b29f60a8c067fb798f8301e30262ef827de",
+            .hash = "fluxion_code-0.1.0-hzHnKIGrAwAZS1xJ8k_yCGS1N_jvKDjQaPza-Lr157HL",
             .lazy = true,
         },
 
@@ -39,8 +39,8 @@
         // package being built, so a game using the language never fetches
         // them. The commits fluxion-ui pins, so each is one package.
         .fluxion_ui = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-ui#ac88e9820b942947e4eb4d0f6a377b008a0b3d70",
-            .hash = "fluxion_ui-0.1.0-lw4Ws_VQEAClHzg2bRTJ94nRWt-0chfUczMcTkatYsci",
+            .url = "git+https://github.com/kisstp2006/fluxion-ui#d57e5e3e90f3750fa442376ff37800c556cb66cb",
+            .hash = "fluxion_ui-0.1.0-lw4Ws1xsEADjTQAoU4DyCeTJwBy3PqwfMZLXqQONMQ2e",
             .lazy = true,
         },
         .fluxion_platform = .{
