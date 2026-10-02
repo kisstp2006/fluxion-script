@@ -196,7 +196,7 @@ const Rows = struct {
     fn resolve(context: ?*anyopaque, key: u64, t: *const reflect.Type) ?reflect.Value {
         const self: *Rows = @ptrCast(@alignCast(context.?));
         if (!t.is(Health) or key >= self.slot_of.len) return null;
-        const slot = self.slot_of[key] orelse return null;
+        const slot = self.slot_of[@intCast(key)] orelse return null;
         return .of(&self.items[slot]);
     }
 

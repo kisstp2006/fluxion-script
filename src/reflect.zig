@@ -484,7 +484,9 @@ const member_name_max = 32;
 
 /// What `name` is on `t`: see `Member`.
 pub fn memberOf(vm: *Vm, t: *const reflect.Type, name: []const u8) Member {
-    const at = ((@intFromPtr(t) >> 4) ^ (@intFromPtr(name.ptr) *% 0x9E37_79B9_7F4A_7C15 >> 7)) % member_slots;
+    // The golden ratio's bits, as wide as an address is.
+    const spread: usize = @truncate(0x9E37_79B9_7F4A_7C15);
+    const at = ((@intFromPtr(t) >> 4) ^ (@intFromPtr(name.ptr) *% spread >> 7)) % member_slots;
     const spot = &vm.found_members[at];
     if (spot.type == t and spot.len == name.len and std.mem.eql(u8, spot.name[0..spot.len], name)) return spot.*;
 
