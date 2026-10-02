@@ -176,7 +176,11 @@ pub fn defaults(c: *Compiler, s: decl.StructDecl) Error!void {
         const mark = f.free;
         defer f.release(mark);
         if (node.value) |v| {
-            if (decl.literal(c, v) != null or v.kind == .null) continue;
+            // What the class keeps as its default needs no code. That was
+            // decided as the class was laid out, before the module's
+            // constants were known: one that names a constant folds to a
+            // literal by now, but the class has none, so it is made here.
+            if (!info.class.fields[field.slot].computed) continue;
             f.span = v.span;
             const r = try expr.typed(&f, v, field.type, "the field's default");
             try f.abc(.setfield, self, @intCast(field.slot), r.reg);

@@ -69,3 +69,17 @@ struct Body {
 const body = Body{};
 print(body.mass * Body.G + 0.5, body.drag);
 // out: 20.5 1.0
+
+// A field's default may name a constant of the module, written before the
+// struct or after it.
+const START = 3;
+struct Counter {
+    var from: int = START;
+    var to: int = END;
+    var label: string = NAMES[START - 2];
+}
+const END = 9;
+const NAMES = ["a", "b", "c"];
+const counter = Counter{};
+print(counter.from, counter.to, counter.label);
+// out: 3 9 b
