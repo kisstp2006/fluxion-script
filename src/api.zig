@@ -141,6 +141,39 @@ pub fn setTaskOwner(vm: *Vm, owner: u64) u64 {
     return before;
 }
 
+/// A task the host finishes: what a method of the host's gives for work
+/// that ends later - a web request - for a script to `await`, or to keep
+/// and `await` when it wants. Hold it (`vm.hold`) while the work goes on,
+/// end it with `finishTask` or `failTask`, and release it. The method says
+/// what awaiting it gives with `flux.Pending`.
+pub fn newHostTask(vm: *Vm) Allocator.Error!Value {
+    const t = try make.task(vm);
+    t.state = .suspended;
+    return .fromObj(.task, &t.obj);
+}
+
+/// Ends a task `newHostTask` made with what awaiting it gives, and wakes
+/// what waits for it. A task already ended is left as it is.
+pub fn finishTask(vm: *Vm, task: Value, result: Value) Vm.Error!void {
+    if (task.tag != .task) return vm.fail("only a task is finished, and this is {s}", .{types_mod.typeName(task)});
+    const t = task.as(object.Task);
+    if (t.state != .suspended) return;
+    t.state = .done;
+    t.result = result;
+    vm.heap.barrier(&t.obj, result);
+    try call_mod.wakeWaiters(vm, t);
+}
+
+/// Ends a task `newHostTask` made with an error a script catches where it
+/// awaits it - `error.Timeout("no answer in 30 s")` - for a method whose
+/// `flux.Pending` says it `fails`.
+pub fn failTask(vm: *Vm, task: Value, name: []const u8, message: ?[]const u8) Vm.Error!void {
+    const e = try make.errorText(vm, name, message);
+    try vm.pushRoot(e);
+    defer vm.popRoot();
+    try finishTask(vm, task, e);
+}
+
 // ---------------------------------------------------------------------------
 // A script's structs, from the host: what an engine needs to put a script on
 // an entity, call into it, and wire its signals.

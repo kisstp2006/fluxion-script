@@ -26,7 +26,8 @@ const Known = union(enum) {
     signature: *const types.Signature,
     method: struct { receiver: Type, name: []const u8 },
     prelude: struct { name: []const u8, native: *object.Native },
-    math: []const u8,
+    /// A function of a module built in: `math.sqrt`, `hash.md5`.
+    native: struct { module: []const u8, name: []const u8 },
     /// A method of a value of one of the host's types: see `host.zig`.
     host: HostCall,
     dynamic,
@@ -229,6 +230,8 @@ fn arguments(f: *Func, e: *const ast.Expr, known: Known, self_given: bool, await
                     _ = try expr.typedInto(f, a, r, if (i < params.len) params[i].type else .unknown, "the argument");
                 }
             }
+            // A task the host ends later: awaited, what it ends with.
+            if (h.sig.coroutine) return if (awaited) h.sig.ret else .task;
             return host.resultType(c.vm, h.found.method, h.found.owner, given);
         },
         .method => |m| {
@@ -245,7 +248,7 @@ fn arguments(f: *Func, e: *const ast.Expr, known: Known, self_given: bool, await
             const final = try builtins.method(c, m.receiver, m.name, got[0..@min(args.len, got.len)]);
             return final.?.ret;
         },
-        .prelude, .math, .dynamic => {
+        .prelude, .native, .dynamic => {
             var got: [32]Type = undefined;
             for (args, 0..) |a, i| {
                 const r = try f.alloc();
@@ -260,7 +263,7 @@ fn arguments(f: *Func, e: *const ast.Expr, known: Known, self_given: bool, await
                     }
                     return builtins.preludeReturn(c, p.name, got[0..n]);
                 },
-                .math => |name| return builtins.mathReturn(name, got[0..n]),
+                .native => |nf| return builtins.nativeReturn(nf.module, nf.name, got[0..n]),
                 else => return .any,
             }
         },
@@ -331,7 +334,7 @@ fn calleeInto(f: *Func, callee: *const ast.Expr, base: u8, direct: *bool) Error!
                 const v = try member.field(f, callee, base);
                 // An import that failed has no module, and has been reported.
                 const mod = c.pool.moduleOf(g.type) orelse return .dynamic;
-                if (std.mem.eql(u8, mod.name, "math")) return .{ .math = fl.name.text };
+                if (builtins.typedModule(mod.name)) return .{ .native = .{ .module = mod.name, .name = fl.name.text } };
                 if (c.pool.signatureOf(v.type)) |sg| return .{ .signature = sg };
                 return .dynamic;
             };

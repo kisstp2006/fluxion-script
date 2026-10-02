@@ -43,6 +43,8 @@ pub fn install(vm: *Vm) std.mem.Allocator.Error!void {
     try @import("signal.zig").install(vm);
     try @import("math.zig").install(vm);
     try @import("json.zig").install(vm);
+    try @import("hash.zig").install(vm);
+    try @import("url.zig").install(vm);
 }
 
 fn print(vm: *Vm, args: []Value) Error!Value {

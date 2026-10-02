@@ -497,7 +497,8 @@ print("loading");                 // printed before "go!"
 ```
 
 What can be awaited: a number of seconds, a task (for its result), a
-signal (for what it is emitted with). Time moves when the host says so -
+signal (for what it is emitted with). A host's call may give a task too,
+for work that ends later: `await web.get(url)` waits for the answer. Time moves when the host says so -
 `vm.update(dt)` each frame, or the `flux` command's clock. A task that
 panics reports it; one waiting on it fails too, with the reason.
 
@@ -535,7 +536,7 @@ see [reloading](embedding.md#reloading-a-script-while-it-runs).
 
 ```zig
 const math = @import("math");        // built in
-const json = @import("json");        // built in
+const json = @import("json");        // built in, as are `hash` and `url`
 const os = @import("os");            // given by the `flux` command, or a host
 const enemies = @import("enemies.flux");   // a file, next to this one
 const game = @import("game");        // a module the host made
@@ -596,6 +597,14 @@ run, so a replay replays; `math.seed(n)` changes that.
 strings, numbers, bools and null, or an error with the line and column;
 `json.stringify(value)` and `json.stringify(value, indent)` give text, of
 lists, maps, instances (their fields), vectors (as arrays) and the rest.
+
+`@import("hash")`: `hash.md5(text)`, `hash.sha1(text)`,
+`hash.sha256(text)` and `hash.hmac_sha256(key, text)`, each the digest as
+lowercase hex.
+
+`@import("url")`: `url.encode(text)` keeps letters, digits and `-_.~` and
+writes every other byte as `%XX`; `url.decode(text)` turns each `%XX` back;
+`url.query(map)` gives `a=1&b=two%20words`, the keys in order.
 
 `@import("os")`, where the host gives it (the `flux` command does):
 `os.args`, `os.read_file(path)` and `os.write_file(path, text)` (errors

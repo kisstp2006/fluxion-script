@@ -187,7 +187,7 @@ fn importModule(c: *Compiler, path: []const u8, span: diag.Span) Error!?*types.M
     if (vm.native_modules.get(path)) |m| return try nativeInfo(c, path, m);
     const loader = vm.options.loader orelse {
         _ = try (try c.err(span, "there is no module `{s}`", .{path}))
-            .note("the modules built in are `math` and `json`; the host has not set a loader for files", .{});
+            .note("the modules built in are `math`, `json`, `hash` and `url`; the host has not set a loader for files", .{});
         return null;
     };
     const loaded = loader.load(loader.context, vm.gpa, c.name, path) catch |e| {

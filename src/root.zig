@@ -44,6 +44,8 @@ pub const Alias = @import("reflect.zig").Alias;
 pub const GivesErrors = @import("reflect.zig").GivesErrors;
 /// What a method that gives back a `flux.Value` gives: see `reflect.zig`.
 pub const Returns = @import("reflect.zig").Returns;
+/// What awaiting the task a method gives gives: see `reflect.zig`.
+pub const Pending = @import("reflect.zig").Pending;
 pub const Hook = Vm.Hook;
 pub const Annotation = Vm.Annotation;
 pub const Doc = Vm.Doc;
@@ -90,6 +92,7 @@ test {
     _ = os;
     _ = @import("reflect_test.zig");
     _ = @import("host_compile_test.zig");
+    _ = @import("host_task_test.zig");
     _ = @import("image_test.zig");
     _ = service;
     _ = @import("service/complete.zig");

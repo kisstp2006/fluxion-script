@@ -635,6 +635,20 @@ pub const Returns = union(enum) {
     }
 };
 
+/// Said of a method that gives a task the host ends later
+/// (`Vm.newHostTask`): what awaiting it gives, and whether that may be an
+/// error to catch. `.get = .{ flux.Pending.of(Response, true) }` makes
+/// `await web.get(url)` a `!Response`; called without `await`, the method
+/// gives the task.
+pub const Pending = struct {
+    gives: Returns,
+    fails: bool = false,
+
+    pub fn of(comptime T: type, fails: bool) Pending {
+        return .{ .gives = .of(T), .fails = fails };
+    }
+};
+
 /// Said of a method, or of a type for all its methods, whose errors a
 /// script is given as values, to `catch`: a file that is not there. Without
 /// it, an error from a method stops the script, with the error's name, as a

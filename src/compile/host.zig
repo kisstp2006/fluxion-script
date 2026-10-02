@@ -163,6 +163,17 @@ pub fn resultType(vm: *Vm, m: *const reflect.Method, owner: *const reflect.Type,
     return if (catchable) p.errorUnion(held) else held;
 }
 
+/// What awaiting the task a method gives gives, for one that says so with
+/// `flux.Pending`; null for any other.
+pub fn pendingType(vm: *Vm, m: *const reflect.Method) Allocator.Error!?Type {
+    const p = m.attribute(bridge.Pending) orelse return null;
+    const t = switch (p.gives) {
+        .type => |t| try typeOf(vm, t),
+        .builtin => |b| builtin(b),
+    };
+    return if (p.fails) try pool(vm).errorUnion(t) else t;
+}
+
 /// Whether the only errors of a set are those that stop a script.
 fn onlyStops(set: *const reflect.Type) bool {
     const e = set.info.error_set;
@@ -324,7 +335,12 @@ pub fn signature(vm: *Vm, arena: Allocator, found: Method) Allocator.Error!*type
         });
     }
     const sig = try arena.create(types.Signature);
-    sig.* = .{ .params = shown.items, .ret = try resultType(vm, m, found.owner, null) };
+    const pending = try pendingType(vm, m);
+    sig.* = .{
+        .params = shown.items,
+        .ret = pending orelse try resultType(vm, m, found.owner, null),
+        .coroutine = pending != null,
+    };
     return sig;
 }
 

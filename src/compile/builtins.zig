@@ -203,6 +203,18 @@ fn numeric(args: []const Type) Type {
     return if (all_int) .int else .float;
 }
 
+/// Whether the compiler knows what the functions of a module built in give.
+pub fn typedModule(name: []const u8) bool {
+    const eq = std.mem.eql;
+    return eq(u8, name, "math") or eq(u8, name, "hash") or eq(u8, name, "url");
+}
+
+/// What a function of a module `typedModule` knows gives.
+pub fn nativeReturn(module: []const u8, name: []const u8, args: []const Type) Type {
+    if (std.mem.eql(u8, module, "math")) return mathReturn(name, args);
+    return .string;
+}
+
 /// What a `math` function returns: floats for floats, and for `floor` and
 /// its kind an int from a float.
 pub fn mathReturn(name: []const u8, args: []const Type) Type {

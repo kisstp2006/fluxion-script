@@ -136,7 +136,9 @@ pub fn notDeclared(f: *Func, name: []const u8, span: diag.Span) Error!void {
     const h = try c.err(span, "`{s}` is not declared", .{name});
     if (access.nearest(name, candidates.items)) |near| {
         _ = try h.help("did you mean `{s}`?", .{near});
-    } else if (std.mem.eql(u8, name, "math") or std.mem.eql(u8, name, "json")) {
+    } else if (for ([_][]const u8{ "math", "json", "hash", "url" }) |m| {
+        if (std.mem.eql(u8, name, m)) break true;
+    } else false) {
         _ = try h.help("import it first: `const {s} = @import(\"{s}\");`", .{ name, name });
     }
 }

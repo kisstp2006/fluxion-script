@@ -242,6 +242,19 @@ pub const json = [_]Entry{
     .{ .name = "stringify", .sig = "stringify(value: any, indent: int = 0) string", .doc = "The value as JSON text: one line, or laid out with `indent` spaces a level." },
 };
 
+pub const hash = [_]Entry{
+    .{ .name = "md5", .sig = "md5(text: string) string", .doc = "The MD5 digest of the text, as 32 lowercase hex digits. For signing a request an API asks for, not for keeping a secret." },
+    .{ .name = "sha1", .sig = "sha1(text: string) string", .doc = "The SHA-1 digest of the text, as 40 lowercase hex digits." },
+    .{ .name = "sha256", .sig = "sha256(text: string) string", .doc = "The SHA-256 digest of the text, as 64 lowercase hex digits." },
+    .{ .name = "hmac_sha256", .sig = "hmac_sha256(key: string, text: string) string", .doc = "The HMAC-SHA-256 of the text with the key, as 64 lowercase hex digits." },
+};
+
+pub const url = [_]Entry{
+    .{ .name = "encode", .sig = "encode(text: string) string", .doc = "The text as a URL carries it: letters, digits and `-_.~` as they are, every other byte as `%XX`." },
+    .{ .name = "decode", .sig = "decode(text: string) string", .doc = "Each `%XX` back into the byte it stands for; the rest, `+` too, as it is." },
+    .{ .name = "query", .sig = "query(values: {any: any}) string", .doc = "The map as a query - `a=1&b=two%20words` - its keys in order, so the same map always gives the same text." },
+};
+
 pub const os = [_]Entry{
     .{ .name = "args", .sig = "args: [string]", .doc = "The arguments the script was given." },
     .{ .name = "read_file", .sig = "read_file(path: string) !string", .doc = "What the file holds, or an error naming what went wrong." },
@@ -256,6 +269,8 @@ pub const os = [_]Entry{
 pub fn module(name: []const u8) []const Entry {
     if (std.mem.eql(u8, name, "math")) return &math;
     if (std.mem.eql(u8, name, "json")) return &json;
+    if (std.mem.eql(u8, name, "hash")) return &hash;
+    if (std.mem.eql(u8, name, "url")) return &url;
     if (std.mem.eql(u8, name, "os")) return &os;
     return &.{};
 }
@@ -331,7 +346,7 @@ test "every builtin method has its entry" {
         std.debug.print("no entry for the prelude's `{s}`\n", .{k.*.bytes()});
         return error.MissingEntry;
     };
-    inline for (.{ "math", "json" }) |m| {
+    inline for (.{ "math", "json", "hash", "url" }) |m| {
         const module_obj = vm.native_modules.get(m).?;
         for (module_obj.names.items) |n| if (find(module(m), n.bytes()) == null) {
             std.debug.print("no entry for `{s}.{s}`\n", .{ m, n.bytes() });

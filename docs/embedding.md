@@ -403,6 +403,30 @@ running. An owner that is gone for good - an entity despawned - has its
 tasks stopped with `vm.stopTasks(entity_id)`: none of them goes on, and a
 task of another owner waiting for one fails at its `await`.
 
+Work of the host's that ends later - a web request - is a task the host
+ends. A method makes one with `vm.newHostTask()`, holds it while the work
+goes on, and gives it back; when the work is done it ends it with
+`vm.finishTask(task, value)`, or with an error the script catches,
+`vm.failTask(task, "Timeout", "no answer in 30 s")`, and releases it.
+`flux.Pending` says what awaiting it gives, so the compiler knows the type:
+
+```zig
+pub const reflect_methods = .{
+    .get = .{ flux.Pending.of(Response, true), attr.Params{ .names = &.{"url"} } },
+};
+
+pub fn get(web: *Web, vm: *flux.Vm, url: []const u8) !flux.Value {
+    const task = try vm.newHostTask();
+    try vm.hold(task);
+    try web.start(url, task);   // later: vm.finishTask(task, response); vm.release(task)
+    return task;
+}
+```
+
+`await web.get(url)` is then a `!Response`, and `web.get(url)` without
+`await` the task, to await when the script wants. What awaits it wakes in
+the call that ends it, as for a signal.
+
 A mistake at run time returns `error.Panic` from the call that met it.
 `vm.panic` holds the message and every frame; `vm.writePanic(w, .{})`
 prints it with the line, and `vm.clearPanic()` lets the program go on -
