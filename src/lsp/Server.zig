@@ -43,6 +43,15 @@ host: os.Host,
 /// A program's own scripts: its setup and its loader instead of `os` and
 /// the disk. See the top of the file.
 given: ?service.Options = null,
+/// Where a program's scripts are of more than one kind - a game's, and an
+/// editor's own - the options for the file at `path`, on the disc; null for
+/// `given`.
+given_for: ?GivenFor = null,
+
+pub const GivenFor = struct {
+    context: ?*anyopaque = null,
+    of: *const fn (context: ?*anyopaque, path: []const u8) ?service.Options,
+};
 
 const Document = struct {
     uri: []u8,
@@ -200,7 +209,10 @@ const Capabilities = struct {
         open_close: bool = true,
         /// Each change sends the whole text.
         change: u8 = 1,
-        save: struct { include_text: bool = false, pub const json_case = .camel; } = .{},
+        save: struct {
+            include_text: bool = false,
+            pub const json_case = .camel;
+        } = .{},
         pub const json_case = .camel;
     } = .{},
     completion_provider: struct {
@@ -311,15 +323,16 @@ fn saved(s: *Server) !void {
 fn analyze(s: *Server, d: *Document) !void {
     if (d.analysis) |a| a.deinit();
     d.analysis = null;
-    d.analysis = Analysis.init(s.gpa, d.path, d.text, s.options()) catch |err| switch (err) {
+    d.analysis = Analysis.init(s.gpa, d.path, d.text, s.options(d.path)) catch |err| switch (err) {
         error.OutOfMemory => return err,
         error.SetupFailed => null,
     };
     try s.publish(d);
 }
 
-fn options(s: *Server) service.Options {
-    var o: service.Options = s.given orelse .{ .setup = .{ .context = s, .run = setup } };
+fn options(s: *Server, path: []const u8) service.Options {
+    const own = if (s.given_for) |f| f.of(f.context, path) else null;
+    var o: service.Options = own orelse s.given orelse .{ .setup = .{ .context = s, .run = setup } };
     o.loader = .{ .context = s, .load = load };
     o.io = s.io;
     return o;
@@ -455,7 +468,7 @@ fn snippet(arena: Allocator, text: []const u8, caret: u32) Allocator.Error![]con
 
 fn completion(s: *Server, arena: Allocator, id: json.Value, d: *Document, params: json.Value) !void {
     const at = offsetOf(d, params);
-    const found = service.complete(s.gpa, arena, d.path, d.text, at, s.options()) catch |err| switch (err) {
+    const found = service.complete(s.gpa, arena, d.path, d.text, at, s.options(d.path)) catch |err| switch (err) {
         error.OutOfMemory => return err,
         error.SetupFailed => return s.respond(id, .{ .isIncomplete = false, .items = &nothing }),
     };
@@ -478,7 +491,7 @@ fn completion(s: *Server, arena: Allocator, id: json.Value, d: *Document, params
 }
 
 fn signatureHelp(s: *Server, arena: Allocator, id: json.Value, d: *Document, params: json.Value) !void {
-    const sig = (service.signatureHelp(s.gpa, arena, d.path, d.text, offsetOf(d, params), s.options()) catch |err| switch (err) {
+    const sig = (service.signatureHelp(s.gpa, arena, d.path, d.text, offsetOf(d, params), s.options(d.path)) catch |err| switch (err) {
         error.OutOfMemory => return err,
         error.SetupFailed => null,
     }) orelse return s.respond(id, @as(?u8, null));

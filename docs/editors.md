@@ -198,6 +198,10 @@ server.given = .{ .setup = .{ .run = giveGameModule }, .loader = game_files };
 return server.run(stdin);
 ```
 
+Where its scripts are of more than one kind - a game's, and an editor's own
+that know the editor - `given_for` picks the options for a file by its path,
+and `given` serves the rest.
+
 ## The editor, in a program
 
 [fluxion-code](https://github.com/kisstp2006/fluxion-code) is a code editor

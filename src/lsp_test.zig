@@ -9,6 +9,7 @@ const json = @import("fluxion_json");
 
 const Server = @import("lsp/Server.zig");
 const rpc = @import("lsp/rpc.zig");
+const service = @import("service.zig");
 
 const program =
     \\struct Hero {
@@ -188,4 +189,49 @@ test "a program serves its own scripts: its globals, and its imports where the e
         published = true;
     }
     try testing.expect(published);
+}
+
+fn toolOptions(_: ?*anyopaque, path: []const u8) ?service.Options {
+    if (!std.mem.endsWith(u8, path, "tool.flux")) return null;
+    return .{ .setup = .{ .run = hostSetup } };
+}
+
+test "a program's scripts of another kind are served with their own options" {
+    const gpa = testing.allocator;
+    var input: std.ArrayList(u8) = .empty;
+    defer input.deinit(gpa);
+    try frame(gpa, &input, .{ .jsonrpc = "2.0", .id = 1, .method = "initialize", .params = .{ .capabilities = .{} } });
+    for ([_][]const u8{ "file:///game/hero.flux", "file:///game/tool.flux" }) |file| {
+        try frame(gpa, &input, .{ .jsonrpc = "2.0", .method = "textDocument/didOpen", .params = .{ .textDocument = .{
+            .uri = file,
+            .languageId = "flux",
+            .version = 1,
+            .text = "fn f() int { return score; }\n",
+        } } });
+    }
+    try frame(gpa, &input, .{ .jsonrpc = "2.0", .id = 2, .method = "shutdown" });
+    try frame(gpa, &input, .{ .jsonrpc = "2.0", .method = "exit" });
+
+    var output: std.Io.Writer.Allocating = .init(gpa);
+    defer output.deinit();
+    var server: Server = .init(gpa, testing.io, &output.writer);
+    defer server.deinit();
+    server.given_for = .{ .of = toolOptions };
+    var in: std.Io.Reader = .fixed(input.items);
+    try testing.expectEqual(@as(u8, 0), try server.run(&in));
+
+    // The game's file does not know `score`; the tool's does.
+    var said: [2]?usize = .{ null, null };
+    var replies: std.Io.Reader = .fixed(output.written());
+    while (try rpc.read(gpa, &replies)) |body| {
+        defer gpa.free(body);
+        var doc = try json.parse(gpa, body, .{});
+        defer doc.deinit();
+        if (doc.root.get("method").asString() == null) continue;
+        const uri_of = doc.root.get("params").get("uri").asString() orelse continue;
+        const which: usize = if (std.mem.endsWith(u8, uri_of, "tool.flux")) 1 else 0;
+        said[which] = doc.root.get("params").get("diagnostics").len();
+    }
+    try testing.expect(said[0].? > 0);
+    try testing.expectEqual(@as(usize, 0), said[1].?);
 }
