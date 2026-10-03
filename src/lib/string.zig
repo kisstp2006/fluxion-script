@@ -121,7 +121,7 @@ fn pieces(vm: *Vm, list: *object.List, iter: anytype) Error!void {
     var it = iter;
     while (it.next()) |piece| {
         const v = try vm.string(piece);
-        try list.items.append(vm.gpa, v);
+        try list.items.append(vm.storage(), v);
         vm.heap.barrier(&list.obj, v);
     }
 }
@@ -152,7 +152,7 @@ fn lines(vm: *Vm, args: []Value) Error!Value {
     while (it.next()) |line| {
         if (it.index == null and line.len == 0) break;
         const v = try vm.string(std.mem.trimEnd(u8, line, "\r"));
-        try list.items.append(vm.gpa, v);
+        try list.items.append(vm.storage(), v);
         vm.heap.barrier(&list.obj, v);
     }
     return lv;

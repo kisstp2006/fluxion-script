@@ -68,7 +68,7 @@ fn toFlux(vm: *Vm, v: fjson.Value, depth: u32) Error!Value {
                 try vm.pushRoot(k);
                 defer vm.popRoot();
                 const x = try toFlux(vm, o.get(key), depth + 1);
-                m.table.put(vm.gpa, k, x) catch |err| switch (err) {
+                m.table.put(vm.storage(), k, x) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     error.NanKey => unreachable,
                 };

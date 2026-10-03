@@ -553,7 +553,7 @@ pub fn newMap(vm: *Vm, key: types_mod.Check, item: types_mod.Check, keys: []cons
     const m = try make.map(vm, key, item);
     const v: Value = .fromObj(.map, &m.obj);
     for (keys, values) |k, each| {
-        m.table.put(vm.gpa, k, each) catch |err| switch (err) {
+        m.table.put(vm.storage(), k, each) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.NanKey => continue,
         };

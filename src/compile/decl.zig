@@ -358,7 +358,7 @@ fn annotate(c: *Compiler, field: *object.Field, a: ast.Annotation) Error!void {
     const table = field.annotations orelse try make.map(vm, .string, .any);
     field.annotations = table;
     const key: Value = .fromObj(.string, &(try vm.intern(a.name.text)).obj);
-    table.table.put(vm.gpa, key, .fromObj(.list, &args.obj)) catch |err| switch (err) {
+    table.table.put(vm.storage(), key, .fromObj(.list, &args.obj)) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };

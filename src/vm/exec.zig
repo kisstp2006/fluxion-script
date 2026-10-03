@@ -698,7 +698,7 @@ pub fn run(vm: *Vm, f: *Fiber) RunError!Value {
             const l = base[i.a].as(object.List);
             for (base[i.b .. @as(usize, i.b) + i.c]) |v| {
                 const stored = vm.checks.coerce(l.elem, v) orelse return access.wrongType(vm, l.elem, v, "the list's element");
-                try l.items.append(vm.gpa, stored);
+                try l.items.append(vm.storage(), stored);
                 vm.heap.barrier(&l.obj, stored);
             }
             ip += 1;

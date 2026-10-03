@@ -47,7 +47,7 @@ per line for an editor.
 | `out` | where `print` writes; nowhere without it |
 | `loader` | how `@import("file.flux")` finds a file: `flux.FileLoader` reads from disk next to the importing file, or give your own to read from a pack or memory |
 | `max_frames` | calls deep before a panic says "stack overflow" (8000) |
-| `max_bytes` | the most the scripts' objects may take; past it an allocation fails with `error.OutOfMemory` rather than the program running out |
+| `max_bytes` | the most the scripts' objects may take, their lists' and maps' storage too; past it an allocation fails with `error.OutOfMemory` rather than the program running out |
 | `gc` | the collector's pace; `.stress` collects on every allocation, for tests |
 | `on_task_panic` | called with each panic in a task nothing waited for |
 
@@ -593,3 +593,12 @@ reaches - a script's variables, the registers of running code, what is
 held. A value the host keeps across calls must be held: `vm.hold(v)` and
 `vm.release(v)`, or `flux_hold` and `flux_release`, as many releases as
 holds. A value only passed straight back into a call needs nothing.
+
+**What it counts is what the objects take**, their lists' items and their
+maps' tables too: those grow through `vm.storage()`, an allocator over `gpa`
+that adds what it holds to the heap, so a game that makes lists every frame
+is collected as often as the memory it uses says. `max_bytes` counts them
+the same way. `vm.stats()` is how the collector stands - bytes, objects,
+finished cycles, what the last one left alive, the next threshold - which is
+what tells memory that grows because objects live from memory that grows
+because collecting lags.

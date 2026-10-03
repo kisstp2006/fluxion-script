@@ -313,7 +313,7 @@ pub fn setIndex(vm: *Vm, target: Value, index: Value, v: Value) Error!void {
             const m = target.as(object.Map);
             const key = vm.checks.coerce(m.key, index) orelse return wrongType(vm, m.key, index, "the map's key");
             const stored = vm.checks.coerce(m.value, v) orelse return wrongType(vm, m.value, v, "the map's value");
-            m.table.put(vm.gpa, key, stored) catch |err| switch (err) {
+            m.table.put(vm.storage(), key, stored) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.NanKey => return vm.fail("NaN cannot be a map key", .{}),
             };

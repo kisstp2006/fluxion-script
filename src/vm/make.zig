@@ -18,7 +18,7 @@ pub fn list(vm: *Vm, capacity: usize, elem: types.Check) Allocator.Error!*object
     if (capacity > 0) {
         try vm.pushRoot(.fromObj(.list, &l.obj));
         defer vm.popRoot();
-        try l.items.ensureTotalCapacity(vm.gpa, capacity);
+        try l.items.ensureTotalCapacity(vm.storage(), capacity);
     }
     return l;
 }

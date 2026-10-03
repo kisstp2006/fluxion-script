@@ -481,6 +481,98 @@ pub fn alloc(vm: *Vm, comptime T: type, kind: object.Kind, extra: usize) Allocat
     return ptr;
 }
 
+/// What a list's items and a map's table are kept in: `gpa`, with every byte
+/// it holds counted into the collector's heap and its debt, as an object's
+/// own are. A list grown every frame is most of what a game makes, and a
+/// collector that did not see it would collect too seldom while the memory
+/// grew. Past `max_bytes` it fails, as `alloc` does - without collecting
+/// first, since a list is half-grown while this runs.
+pub fn storage(vm: *Vm) Allocator {
+    return .{ .ptr = vm, .vtable = &storage_vtable };
+}
+
+const storage_vtable: Allocator.VTable = .{
+    .alloc = storageAlloc,
+    .resize = storageResize,
+    .remap = storageRemap,
+    .free = storageFree,
+};
+
+fn storageVm(context: *anyopaque) *Vm {
+    return @ptrCast(@alignCast(context));
+}
+
+/// Whether `more` bytes would go past the ceiling.
+fn overLimit(vm: *Vm, more: usize) bool {
+    const limit = vm.options.max_bytes orelse return false;
+    return vm.heap.bytes + more > limit;
+}
+
+/// The storage went from `old` bytes to `new`: a growth is debt too.
+fn recount(vm: *Vm, old: usize, new: usize) void {
+    if (new >= old) {
+        vm.heap.bytes += new - old;
+        vm.heap.debt += @intCast(new - old);
+    } else {
+        vm.heap.bytes -|= old - new;
+    }
+}
+
+fn storageAlloc(context: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+    const vm = storageVm(context);
+    if (overLimit(vm, len)) return null;
+    const bytes = vm.gpa.rawAlloc(len, alignment, ret_addr) orelse return null;
+    recount(vm, 0, len);
+    return bytes;
+}
+
+fn storageResize(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+    const vm = storageVm(context);
+    if (new_len > memory.len and overLimit(vm, new_len - memory.len)) return false;
+    if (!vm.gpa.rawResize(memory, alignment, new_len, ret_addr)) return false;
+    recount(vm, memory.len, new_len);
+    return true;
+}
+
+fn storageRemap(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+    const vm = storageVm(context);
+    if (new_len > memory.len and overLimit(vm, new_len - memory.len)) return null;
+    const moved = vm.gpa.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+    recount(vm, memory.len, new_len);
+    return moved;
+}
+
+fn storageFree(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+    const vm = storageVm(context);
+    vm.gpa.rawFree(memory, alignment, ret_addr);
+    recount(vm, memory.len, 0);
+}
+
+/// How the collector stands: what a host shows to see whether a program's
+/// memory grows because its objects do or because collecting lags behind.
+pub const Stats = struct {
+    /// Bytes the scripts' objects take, their lists' and maps' storage too.
+    bytes: usize,
+    /// How many objects there are, alive or not yet collected.
+    objects: usize,
+    /// How many collections have finished.
+    cycles: u64,
+    /// How many objects the last one left alive.
+    live: usize,
+    /// How many bytes the next collection starts at.
+    threshold: usize,
+};
+
+pub fn stats(vm: *const Vm) Stats {
+    return .{
+        .bytes = vm.heap.bytes,
+        .objects = vm.object_count,
+        .cycles = vm.heap.cycles,
+        .live = vm.heap.live_after,
+        .threshold = vm.heap.threshold,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Keeping values alive from Zig
 

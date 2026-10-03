@@ -350,6 +350,114 @@ test "a handle on the host's memory is freed by the collector, once" {
     try @import("vm/gc.zig").collect(vm);
 }
 
+const storage =
+    \\var kept: [int] = [];
+    \\var table: [string: int] = {};
+    \\fn grow() {
+    \\    for (0..10000) |i| kept.push(i);
+    \\    for (0..1000) |i| table[str(i)] = i;
+    \\}
+    \\fn drop() {
+    \\    kept = [];
+    \\    table = {};
+    \\}
+    \\fn frame() {
+    \\    // What a game does each frame: lists made and dropped.
+    \\    for (0..20) |n| {
+    \\        var points: [int] = [];
+    \\        for (0..200) |i| points.push(i * n);
+    \\    }
+    \\}
+;
+
+test "a list's items and a map's table are the collector's to count" {
+    const vm = try Vm.create(testing.allocator, .{});
+    defer vm.destroy();
+    const m = try vm.load("storage.flux", storage);
+    try @import("vm/gc.zig").collect(vm);
+    const before = vm.stats().bytes;
+
+    _ = try vm.callName(m, "grow", &.{});
+    const grown = vm.stats().bytes;
+    // Ten thousand values and a thousand entries: the storage, not only the
+    // two objects' headers.
+    try testing.expect(grown - before >= 10000 * @sizeOf(Value));
+
+    _ = try vm.callName(m, "drop", &.{});
+    try @import("vm/gc.zig").collect(vm);
+    try testing.expect(vm.stats().bytes < before + 4096);
+}
+
+/// An allocator that says how much it has had out at most.
+const Peak = struct {
+    parent: std.mem.Allocator,
+    now: usize = 0,
+    most: usize = 0,
+
+    fn allocator(self: *Peak) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    fn of(context: *anyopaque) *Peak {
+        return @ptrCast(@alignCast(context));
+    }
+
+    fn moved(self: *Peak, old: usize, new: usize) void {
+        self.now = self.now - old + new;
+        self.most = @max(self.most, self.now);
+    }
+
+    fn alloc(context: *anyopaque, len: usize, alignment: std.mem.Alignment, ret: usize) ?[*]u8 {
+        const self = of(context);
+        const bytes = self.parent.rawAlloc(len, alignment, ret) orelse return null;
+        self.moved(0, len);
+        return bytes;
+    }
+
+    fn resize(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, len: usize, ret: usize) bool {
+        const self = of(context);
+        if (!self.parent.rawResize(memory, alignment, len, ret)) return false;
+        self.moved(memory.len, len);
+        return true;
+    }
+
+    fn remap(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, len: usize, ret: usize) ?[*]u8 {
+        const self = of(context);
+        const bytes = self.parent.rawRemap(memory, alignment, len, ret) orelse return null;
+        self.moved(memory.len, len);
+        return bytes;
+    }
+
+    fn free(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret: usize) void {
+        const self = of(context);
+        self.parent.rawFree(memory, alignment, ret);
+        self.moved(memory.len, 0);
+    }
+};
+
+test "lists made and dropped every frame are collected as they go" {
+    var peak: Peak = .{ .parent = testing.allocator };
+    const vm = try Vm.create(peak.allocator(), .{});
+    defer vm.destroy();
+    const m = try vm.load("storage.flux", storage);
+    for (0..300) |_| _ = try vm.callName(m, "frame", &.{});
+    // Three hundred frames made about nineteen megabytes of points. The
+    // collector kept up with them because it counts what the lists hold:
+    // counting their headers alone, it had not started yet.
+    try testing.expect(vm.stats().cycles > 0);
+    try testing.expect(peak.most < 6 << 20);
+}
+
+test "a ceiling counts what lists hold" {
+    const vm = try Vm.create(testing.allocator, .{ .max_bytes = 1 << 20 });
+    defer vm.destroy();
+    const m = try vm.load("hoard.flux",
+        \\var kept: [int] = [];
+        \\fn hoard() { for (0..1000000) |i| kept.push(i); }
+    );
+    try testing.expectError(error.OutOfMemory, vm.callName(m, "hoard", &.{}));
+}
+
 /// A host value with memory of its own besides its bytes.
 const Pouch = struct {
     coins: []u8 = &.{},

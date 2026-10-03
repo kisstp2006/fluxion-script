@@ -46,7 +46,7 @@ fn store(vm: *Vm, l: *List, v: Value) Error!Value {
 fn push(vm: *Vm, args: []Value) Error!Value {
     const l = self(args);
     const v = try store(vm, l, args[1]);
-    try l.items.append(vm.gpa, v);
+    try l.items.append(vm.storage(), v);
     vm.heap.barrier(&l.obj, v);
     return .null;
 }
@@ -69,7 +69,7 @@ fn insert(vm: *Vm, args: []Value) Error!Value {
     const l = self(args);
     const at = try position(vm, l, args[1], true);
     const v = try store(vm, l, args[2]);
-    try l.items.insert(vm.gpa, at, v);
+    try l.items.insert(vm.storage(), at, v);
     vm.heap.barrier(&l.obj, v);
     return .null;
 }
@@ -196,7 +196,7 @@ fn mapFn(vm: *Vm, args: []Value) Error!Value {
     var i: usize = 0;
     while (i < l.items.items.len) : (i += 1) {
         const v = try call.call(vm, f, &.{l.items.items[i]});
-        try out.items.append(vm.gpa, v);
+        try out.items.append(vm.storage(), v);
         vm.heap.barrier(&out.obj, v);
     }
     return ov;
@@ -219,7 +219,7 @@ fn filter(vm: *Vm, args: []Value) Error!Value {
     while (i < l.items.items.len) : (i += 1) {
         const v = l.items.items[i];
         if (try predicate(vm, f, v)) {
-            try out.items.append(vm.gpa, v);
+            try out.items.append(vm.storage(), v);
             vm.heap.barrier(&out.obj, v);
         }
     }
@@ -284,7 +284,7 @@ fn extend(vm: *Vm, args: []Value) Error!Value {
     const l = self(args);
     const other = try native.list(vm, args, 1);
     const extra = other.items.items;
-    try l.items.ensureUnusedCapacity(vm.gpa, extra.len);
+    try l.items.ensureUnusedCapacity(vm.storage(), extra.len);
     for (0..extra.len) |i| {
         const v = try store(vm, l, other.items.items[i]);
         l.items.appendAssumeCapacity(v);

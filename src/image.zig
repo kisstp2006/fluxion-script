@@ -1379,7 +1379,7 @@ const Loader = struct {
     }
 
     fn fillList(l: *Loader, i: usize) Error!void {
-        const gpa = l.vm.gpa;
+        const gpa = l.vm.storage();
         const list = l.values[i].as(object.List);
         var in: In = .{ .bytes = l.payloads[i] };
         list.elem = try l.checkAt(try in.uint());
@@ -1390,7 +1390,7 @@ const Loader = struct {
     }
 
     fn fillMap(l: *Loader, i: usize) Error!void {
-        const gpa = l.vm.gpa;
+        const gpa = l.vm.storage();
         const map = l.values[i].as(object.Map);
         var in: In = .{ .bytes = l.payloads[i] };
         map.key = try l.checkAt(try in.uint());

@@ -322,12 +322,12 @@ pub fn free(vm: *Vm, o: *Obj) void {
         },
         .list => {
             const l = object.List.from(o);
-            l.items.deinit(gpa);
+            l.items.deinit(vm.storage());
             release(vm, l, 0);
         },
         .map => {
             const m = object.Map.from(o);
-            m.table.deinit(gpa);
+            m.table.deinit(vm.storage());
             release(vm, m, 0);
         },
         .instance => {

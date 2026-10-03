@@ -75,7 +75,7 @@ fn copy(vm: *Vm, args: []Value) Error!Value {
     try vm.pushRoot(ov);
     defer vm.popRoot();
     var it = src.table.iterator();
-    while (it.next()) |e| out.table.put(vm.gpa, e.key, e.value) catch |err| switch (err) {
+    while (it.next()) |e| out.table.put(vm.storage(), e.key, e.value) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.NanKey => unreachable,
     };

@@ -266,7 +266,7 @@ export fn flux_list_push(c: *CVm, list: Value, item: Value) Status {
     if (list.tag != .list) return .not_found;
     const l = list.as(object.List);
     const stored = c.vm.checks.coerce(l.elem, item) orelse return flux_fail(c, "the list does not take that type");
-    l.items.append(gpa, stored) catch return .out_of_memory;
+    l.items.append(c.vm.storage(), stored) catch return .out_of_memory;
     c.vm.heap.barrier(&l.obj, stored);
     return .ok;
 }

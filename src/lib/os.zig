@@ -98,7 +98,7 @@ fn listDir(vm: *Vm, args: []Value) Error!Value {
     var it = dir.iterate();
     while (it.next(io) catch |err| return failed(vm, err, path)) |entry| {
         const v = try vm.string(entry.name);
-        try list.items.append(vm.gpa, v);
+        try list.items.append(vm.storage(), v);
         vm.heap.barrier(&list.obj, v);
     }
     return lv;
