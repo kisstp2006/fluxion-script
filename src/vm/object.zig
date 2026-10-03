@@ -28,6 +28,7 @@ pub const Kind = enum(u8) {
     handle,
     proto,
     upvalue,
+    quat,
 };
 
 /// The header every heap object starts from. Objects are found from it with
@@ -360,6 +361,16 @@ pub const Color = struct {
     rgba: [4]f32,
 
     pub const from = Header(Color).from;
+};
+
+/// A rotation: `x`, `y`, `z` and `w`, `w` last. Sixteen bytes, more than a
+/// value carries, so it lives on the heap as a colour does, and is never
+/// changed once made.
+pub const Quat = struct {
+    obj: Obj,
+    xyzw: [4]f32,
+
+    pub const from = Header(Quat).from;
 };
 
 /// A Zig value seen through fluxion-reflect: its fields read and written by

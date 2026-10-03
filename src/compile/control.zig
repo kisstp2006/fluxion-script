@@ -72,7 +72,7 @@ fn facts(f: *Func, e: *const ast.Expr, when: bool) Error!void {
 /// which an int passes too.
 fn exact(c: *Compiler, t: Type) bool {
     return switch (t) {
-        .int, .bool, .string, .vec2, .vec3, .color, .@"error", .task, .signal => true,
+        .int, .bool, .string, .vec2, .vec3, .color, .quat, .@"error", .task, .signal => true,
         else => c.pool.structOf(t) != null or c.pool.enumOf(t) != null or c.pool.hostOf(t) != null or c.pool.listOf(t) != null or c.pool.mapOf(t) != null,
     };
 }

@@ -30,6 +30,7 @@ pub const Type = enum(u32) {
     @"error",
     task,
     signal,
+    quat,
     _,
 
     pub const first_pool = 64;
@@ -339,7 +340,7 @@ pub const Pool = struct {
             .unknown => try w.writeAll("?"),
             .never => try w.writeAll("noreturn"),
             .@"error" => try w.writeAll("error"),
-            .any, .void, .null, .bool, .int, .float, .string, .vec2, .vec3, .color, .task, .signal => try w.writeAll(@tagName(t)),
+            .any, .void, .null, .bool, .int, .float, .string, .vec2, .vec3, .color, .quat, .task, .signal => try w.writeAll(@tagName(t)),
             _ => switch (p.info(t).?) {
                 .list => |e| {
                     try w.writeByte('[');
@@ -405,6 +406,7 @@ pub const Pool = struct {
             .vec2 => .vec2,
             .vec3 => .vec3,
             .color => .color,
+            .quat => .quat,
             .@"error" => .@"error",
             .task => .task,
             .signal => .signal,

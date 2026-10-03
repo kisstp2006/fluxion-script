@@ -4,7 +4,8 @@
 //! writes a value's fields by name and calls the methods its type lists in
 //! `reflect_methods`, converting numbers, bools, strings, enums and
 //! vectors on the way. A struct of two or three `f32`s named x, y (and z)
-//! comes over as a `vec2` or `vec3` - an engine's `Vec2` is the script's.
+//! comes over as a `vec2` or `vec3` - an engine's `Vec2` is the script's -
+//! and one of four named x, y, z and w as a `quat`.
 //! An enum is a Flux enum of the same name and members; a tagged union is
 //! its live arm - the payload's handle, or the member naming an arm that
 //! holds nothing - and a payload has the union's methods besides its own.
@@ -265,8 +266,8 @@ pub fn create(vm: *Vm, comptime T: type) Error!Value {
 pub fn vectorLength(t: *const reflect.Type) ?usize {
     if (t.kind != .@"struct") return null;
     const fields = t.fields();
-    if (fields.len != 2 and fields.len != 3) return null;
-    const names = [_][]const u8{ "x", "y", "z" };
+    if (fields.len < 2 or fields.len > 4) return null;
+    const names = [_][]const u8{ "x", "y", "z", "w" };
     for (fields, 0..) |f, i| {
         if (!f.name.eql(names[i]) or f.type.kind != .float or f.type.size != 4) return null;
     }
@@ -342,6 +343,7 @@ fn toFluxAt(vm: *Vm, rv: reflect.Value, owner: Value, step: object.Handle.Step) 
         .@"struct" => {
             if (vectorLength(t)) |n| {
                 if (n == 2) return .vec2(floatField(rv, 0), floatField(rv, 1));
+                if (n == 4) return make.quat(vm, .{ floatField(rv, 0), floatField(rv, 1), floatField(rv, 2), floatField(rv, 3) });
                 return .vec3(floatField(rv, 0), floatField(rv, 1), floatField(rv, 2));
             }
             return handleAt(vm, rv, owner, step);
@@ -425,6 +427,12 @@ pub fn fromFlux(vm: *Vm, rv: reflect.Value, v: Value) Error!void {
         },
         .@"struct" => {
             if (vectorLength(t)) |n| {
+                if (n == 4) {
+                    if (v.tag != .quat) return refused(vm, t, v);
+                    const q = v.as(object.Quat).xyzw;
+                    for (0..4) |i| (rv.fieldAt(i) catch unreachable).setFloat(q[i]) catch |err| return check(vm, err, t, v);
+                    return;
+                }
                 if (!(v.tag == .vec2 and n == 2) and !(v.tag == .vec3 and n == 3)) return refused(vm, t, v);
                 const xyz = if (v.tag == .vec2) [3]f32{ v.asVec2()[0], v.asVec2()[1], 0 } else v.asVec3();
                 for (0..n) |i| (rv.fieldAt(i) catch unreachable).setFloat(xyz[i]) catch |err| return check(vm, err, t, v);

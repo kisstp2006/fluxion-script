@@ -53,7 +53,7 @@ pub const Token = struct {
     modifiers: Modifiers = .{},
 };
 
-const builtin_types = [_][]const u8{ "int", "float", "bool", "string", "void", "any", "vec2", "vec3", "color", "task", "signal" };
+const builtin_types = [_][]const u8{ "int", "float", "bool", "string", "void", "any", "vec2", "vec3", "color", "quat", "task", "signal" };
 
 /// Every token of the file worth a colour, in order; none crosses a line.
 pub fn tokens(a: *const Analysis, arena: Allocator) Allocator.Error![]const Token {

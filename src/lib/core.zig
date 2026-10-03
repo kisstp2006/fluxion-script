@@ -39,6 +39,7 @@ pub fn install(vm: *Vm) std.mem.Allocator.Error!void {
     try @import("map.zig").install(vm);
     try @import("vec.zig").install(vm);
     try @import("color.zig").install(vm);
+    try @import("quat.zig").install(vm);
     try @import("enums.zig").install(vm);
     try @import("signal.zig").install(vm);
     try @import("math.zig").install(vm);

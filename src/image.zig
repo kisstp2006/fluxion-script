@@ -127,6 +127,7 @@ const Kind = enum(u8) {
     method,
     enum_method,
     host_enum,
+    quat,
 };
 
 /// How a value is written: its tag's byte.
@@ -430,7 +431,7 @@ const Saver = struct {
                 try out.byte(@intFromEnum(ValueTag.host_type));
                 try out.uint(try s.hostType(v.asHostType()));
             },
-            .string, .list, .map, .instance, .function, .native, .method, .class, .enum_type, .module, .task, .signal, .@"error", .color, .handle => {
+            .string, .list, .map, .instance, .function, .native, .method, .class, .enum_type, .module, .task, .signal, .@"error", .color, .quat, .handle => {
                 try out.byte(@intFromEnum(ValueTag.object));
                 try out.uint(try s.id(v.obj()));
             },
@@ -506,6 +507,10 @@ const Saver = struct {
             .color => {
                 for (object.Color.from(o).rgba) |c| try out.fixed(u32, @bitCast(c));
                 return .color;
+            },
+            .quat => {
+                for (object.Quat.from(o).xyzw) |c| try out.fixed(u32, @bitCast(c));
+                return .quat;
             },
             .error_value => {
                 const e = object.ErrorValue.from(o);
@@ -1071,6 +1076,11 @@ const Loader = struct {
                 for (&rgba) |*c| c.* = @bitCast(try in.fixed(u32));
                 return make.color(vm, rgba);
             },
+            .quat => {
+                var xyzw: [4]f32 = undefined;
+                for (&xyzw) |*c| c.* = @bitCast(try in.fixed(u32));
+                return make.quat(vm, xyzw);
+            },
             .error_value => {
                 const error_name = try l.stringAt(try in.uint());
                 const message = try in.uint();
@@ -1142,7 +1152,7 @@ const Loader = struct {
 
     fn checkAt(l: *Loader, id: u64) Error!types.Check {
         if (id < types.Check.first_table) {
-            if (id > @intFromEnum(types.Check.type)) return error.Damaged;
+            if (id > @intFromEnum(types.Check.quat)) return error.Damaged;
             return @enumFromInt(id);
         }
         const index = id - types.Check.first_table;

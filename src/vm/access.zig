@@ -77,6 +77,13 @@ fn builtinProperty(vm: *Vm, v: Value, name: *String) ?Value {
             if (name == n.b) return .float(c[2]);
             if (name == n.a) return .float(c[3]);
         },
+        .quat => {
+            const q = v.as(object.Quat).xyzw;
+            if (name == n.x) return .float(q[0]);
+            if (name == n.y) return .float(q[1]);
+            if (name == n.z) return .float(q[2]);
+            if (name == n.w) return .float(q[3]);
+        },
         .string => if (name == n.len) return .int(v.as(String).chars),
         .list => if (name == n.len) return .int(@intCast(v.as(object.List).items.items.len)),
         .map => if (name == n.len) return .int(@intCast(v.as(object.Map).table.count())),
@@ -162,6 +169,7 @@ pub fn builtinMethod(vm: *Vm, v: Value, name: *String) ?Value {
         .vec2 => .vec2,
         .vec3 => .vec3,
         .color => .color,
+        .quat => .quat,
         .signal => .signal,
         .task => .task,
         .@"error" => .@"error",

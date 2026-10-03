@@ -10,6 +10,7 @@ const Vm = @import("Vm.zig");
 const Value = @import("value.zig").Value;
 const object = @import("object.zig");
 const types = @import("types.zig");
+const quats = @import("../lib/quat.zig");
 const Error = Vm.Error;
 
 pub const Arith = enum { add, sub, mul, div, mod, add_wrap, sub_wrap, mul_wrap, bit_and, bit_or, bit_xor, shl, shr };
@@ -142,6 +143,14 @@ pub fn arith(vm: *Vm, op: Arith, a: Value, b: Value) Error!Value {
         if (floats(op, a.toFloat().?, b.toFloat().?)) |r| return .float(r);
         return cannot(vm, op, a, b);
     }
+    if (a.tag == .quat and op == .mul) {
+        const q = a.as(object.Quat).xyzw;
+        if (b.tag == .quat) return @import("make.zig").quat(vm, quats.mul(q, b.as(object.Quat).xyzw));
+        if (b.tag == .vec3) {
+            const v = quats.rotate(q, b.asVec3());
+            return .vec3(v[0], v[1], v[2]);
+        }
+    }
     if (a.tag == .vec2 or b.tag == .vec2) return vecArith(2, vm, op, a, b);
     if (a.tag == .vec3 or b.tag == .vec3) return vecArith(3, vm, op, a, b);
     if (op == .add and a.tag == .string and b.tag == .string) return concat(vm, a.as(object.String).bytes(), b.as(object.String).bytes());
@@ -233,6 +242,7 @@ fn equalDepth(a: Value, b: Value, depth: u32) bool {
         .string => a.as(object.String).eql(b.as(object.String)),
         .@"error" => a.raw == b.raw or a.as(object.ErrorValue).name == b.as(object.ErrorValue).name,
         .color => std.mem.eql(f32, &a.as(object.Color).rgba, &b.as(object.Color).rgba),
+        .quat => std.mem.eql(f32, &a.as(object.Quat).xyzw, &b.as(object.Quat).xyzw),
         .list => {
             if (a.raw == b.raw) return true;
             if (depth > max_compare_depth) return false;

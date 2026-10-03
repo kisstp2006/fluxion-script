@@ -219,6 +219,8 @@ fn arithmeticType(c: *Compiler, op: ast.BinaryOp, a: Type, b: Type) ?Type {
     if (bits) return if (a == .int and b == .int) .int else null;
     if (a == .int and b == .int) return .int;
     if (isNumber(a) and isNumber(b)) return .float;
+    if (op == .mul and a == .quat and b == .quat) return .quat;
+    if (op == .mul and a == .quat and b == .vec3) return .vec3;
     if (isVector(a) and a == b and op != .mod) return a;
     if (isVector(a) and isNumber(b) and (op == .mul or op == .div)) return a;
     if (isNumber(a) and isVector(b) and op == .mul) return b;

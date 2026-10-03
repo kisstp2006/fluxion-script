@@ -437,7 +437,7 @@ pub const FieldInfo = struct {
     annotations: ?*object.Map,
 };
 
-pub const FieldKind = enum { any, int, float, bool, string, vec2, vec3, color, list, map, enum_member, host, instance, function, other };
+pub const FieldKind = enum { any, int, float, bool, string, vec2, vec3, color, quat, list, map, enum_member, host, instance, function, other };
 
 /// What a field holds, or a list's item, or a map's key or value.
 pub const Shape = struct {
@@ -505,6 +505,7 @@ fn shapeOf(vm: *const Vm, check: types_mod.Check) Shape {
         .vec2 => .{ .kind = .vec2, .check = check },
         .vec3 => .{ .kind = .vec3, .check = check },
         .color => .{ .kind = .color, .check = check },
+        .quat => .{ .kind = .quat, .check = check },
         .list => .{ .kind = .list, .check = check },
         .map => .{ .kind = .map, .check = check },
         .function => .{ .kind = .function, .check = check },
@@ -566,6 +567,11 @@ pub fn newMap(vm: *Vm, key: types_mod.Check, item: types_mod.Check, keys: []cons
 /// A colour, from red, green, blue and alpha between nought and one.
 pub fn newColor(vm: *Vm, rgba: [4]f32) Allocator.Error!Value {
     return make.color(vm, rgba);
+}
+
+/// A rotation, from `x`, `y`, `z` and `w`.
+pub fn newQuat(vm: *Vm, xyzw: [4]f32) Allocator.Error!Value {
+    return make.quat(vm, xyzw);
 }
 
 /// The arguments of the annotation `name` on a field - `@range(0, 100)` is

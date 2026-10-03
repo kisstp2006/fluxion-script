@@ -199,6 +199,7 @@ fn zero(vm: *Vm, check: types.Check, depth: u8) Allocator.Error!Value {
         .vec2 => .vec2(0, 0),
         .vec3 => .vec3(0, 0, 0),
         .color => make.color(vm, .{ 0, 0, 0, 1 }),
+        .quat => make.quat(vm, .{ 0, 0, 0, 1 }),
         .list => .fromObj(.list, &(try make.list(vm, 0, .any)).obj),
         .map => .fromObj(.map, &(try make.map(vm, .any, .any)).obj),
         .function => unset(vm),

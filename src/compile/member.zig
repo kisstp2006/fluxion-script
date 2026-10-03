@@ -253,6 +253,7 @@ pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
     const known: ?Type = switch (t.type) {
         .@"error" => if (std.mem.eql(u8, name, "name")) .string else if (std.mem.eql(u8, name, "message")) try pool.optional(.string) else null,
         .color => if (name.len == 1 and std.mem.indexOfScalar(u8, "rgba", name[0]) != null) .float else null,
+        .quat => if (name.len == 1 and std.mem.indexOfScalar(u8, "xyzw", name[0]) != null) .float else null,
         else => null,
     };
     const out = try binary.result(f, dst, mark);
@@ -339,6 +340,7 @@ fn builtinHasMethod(c: *Compiler, t: Type, name: []const u8) bool {
         .vec2 => .vec2,
         .vec3 => .vec3,
         .color => .color,
+        .quat => .quat,
         .signal => .signal,
         .task => .task,
         .int => .int,

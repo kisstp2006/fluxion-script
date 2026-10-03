@@ -24,6 +24,7 @@ const builtin_types = std.StaticStringMap(Type).initComptime(.{
     .{ "vec2", .vec2 },
     .{ "vec3", .vec3 },
     .{ "color", .color },
+    .{ "quat", .quat },
     .{ "error", .@"error" },
     .{ "task", .task },
     .{ "signal", .signal },
@@ -152,6 +153,7 @@ pub fn shallowType(c: *Compiler, e: *const ast.Expr) Error!Type {
                 if (std.mem.eql(u8, name, "vec2")) break :blk .vec2;
                 if (std.mem.eql(u8, name, "vec3")) break :blk .vec3;
                 if (std.mem.eql(u8, name, "color")) break :blk .color;
+                if (std.mem.eql(u8, name, "quat")) break :blk .quat;
             }
             break :blk .any;
         },

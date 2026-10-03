@@ -70,7 +70,7 @@ fn loadLevel(path: string) !Level {
 
 ## ✨ What it is for
 
-- 🎮 **Games.** Structs for things in the world, signals for what happens to them, `vec2` and `vec3` as plain values, tasks that `await` a timer or a signal, and a host that calls `update(dt)` each frame.
+- 🎮 **Games.** Structs for things in the world, signals for what happens to them, `vec2` and `vec3` as plain values and `quat` for rotations, tasks that `await` a timer or a signal, and a host that calls `update(dt)` each frame.
 - 🧰 **Applications.** JSON, files, text, errors as values you handle - `try`, `catch`, `error.NotFound("why")` - and tests written next to the code.
 - 🔎 **Typed where you say.** Give a type and the compiler checks it before the program starts; leave it out and the value is checked where it meets typed code. Typed code runs on typed instructions.
 - 🩺 **Mistakes that say where and what.** Every error has the line, a caret, what was wanted and what was found, and often what to write. A runtime error comes with the stack of calls that led there.

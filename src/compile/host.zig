@@ -64,6 +64,7 @@ pub fn typeOf(vm: *Vm, t: *const reflect.Type) Allocator.Error!Type {
         .@"struct" => switch (bridge.vectorLength(t) orelse 0) {
             2 => .vec2,
             3 => .vec3,
+            4 => .quat,
             else => p.host(t),
         },
         .@"union" => if (allVoid(t)) tagOf(vm, t) else p.host(t),
@@ -78,6 +79,7 @@ fn builtin(b: Vm.BuiltinType) Type {
         .vec2 => .vec2,
         .vec3 => .vec3,
         .color => .color,
+        .quat => .quat,
         .signal => .signal,
         .task => .task,
         .@"error" => .@"error",

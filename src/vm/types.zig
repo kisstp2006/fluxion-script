@@ -31,6 +31,7 @@ pub const Check = enum(u32) {
     @"error",
     null,
     type,
+    quat,
     _,
 
     pub const first_table = 32;
@@ -89,6 +90,7 @@ pub const Table = struct {
             .vec2 => v.tag == .vec2,
             .vec3 => v.tag == .vec3,
             .color => v.tag == .color,
+            .quat => v.tag == .quat,
             .list => v.tag == .list,
             .map => v.tag == .map,
             .function => v.tag == .function or v.tag == .native or v.tag == .method,
@@ -130,7 +132,7 @@ pub const Table = struct {
 
     pub fn name(t: *const Table, c: Check, w: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (c) {
-            .any, .int, .float, .bool, .string, .vec2, .vec3, .color, .list, .map, .task, .signal, .@"error", .null, .type => try w.writeAll(@tagName(c)),
+            .any, .int, .float, .bool, .string, .vec2, .vec3, .color, .quat, .list, .map, .task, .signal, .@"error", .null, .type => try w.writeAll(@tagName(c)),
             .function => try w.writeAll("fn"),
             _ => switch (t.get(c).?) {
                 .optional => |inner| {
@@ -185,6 +187,7 @@ pub fn tagCheck(tag: Tag) Check {
         .vec2 => .vec2,
         .vec3 => .vec3,
         .color => .color,
+        .quat => .quat,
         .list => .list,
         .map => .map,
         .function, .native, .method => .function,

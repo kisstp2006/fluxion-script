@@ -30,6 +30,7 @@ pub const prelude = [_]Entry{
     .{ .name = "vec2", .sig = "vec2(x: float = 0, y: float = x) vec2", .doc = "A 2D vector: `vec2()`, `vec2(s)` for both parts, or `vec2(x, y)`." },
     .{ .name = "vec3", .sig = "vec3(x: float = 0, y: float = x, z: float = x) vec3", .doc = "A 3D vector: `vec3()`, `vec3(s)`, `vec3(xy, z)` or `vec3(x, y, z)`." },
     .{ .name = "color", .sig = "color(r: float, g: float, b: float, a: float = 1) color", .doc = "A colour: `color(\"#FF8000\")`, `color(\"#FF800080\")`, `color(\"#F80\")`, `color(\"royalblue\")` (any of the web's 148 names), `color(grey)`, `color(r, g, b)` or `color(r, g, b, a)`, each part from 0 to 1." },
+    .{ .name = "quat", .sig = "quat(x: float, y: float, z: float, w: float) quat", .doc = "A rotation: `quat()` for none, `quat(euler)` from pitch, yaw and roll in radians (a `vec3`), `quat(axis, angle)` turning `angle` radians about a `vec3`, or `quat(x, y, z, w)`." },
     .{ .name = "hsv", .sig = "hsv(h: float, s: float, v: float, a: float = 1) color", .doc = "A colour from its hue in degrees round the wheel - 0 red, 120 green, 240 blue - and its saturation, value and alpha, each from 0 to 1." },
     .{ .name = "wait", .sig = "wait(seconds: float) float", .doc = "Something to `await`: `await wait(0.5)` comes back after half a second of script time." },
     .{ .name = "min", .sig = "min(values: any...) any", .doc = "The smallest of its arguments, or of the items of one list." },
@@ -141,6 +142,19 @@ pub const vector = [_]Entry{
     .{ .name = "orthogonal", .sig = "orthogonal() vec2", .doc = "Turned a quarter turn. `vec2` only." },
 };
 
+pub const quat = [_]Entry{
+    .{ .name = "euler", .sig = "euler() vec3", .doc = "Pitch, yaw and roll in radians, as `quat(euler)` takes them back." },
+    .{ .name = "inverse", .sig = "inverse() quat", .doc = "The turn that undoes this one." },
+    .{ .name = "normalized", .sig = "normalized() quat", .doc = "The same rotation with a length of one." },
+    .{ .name = "length", .sig = "length() float", .doc = "How long the four numbers are together: one for a rotation." },
+    .{ .name = "dot", .sig = "dot(other: quat) float", .doc = "The four parts multiplied pairwise and added." },
+    .{ .name = "slerp", .sig = "slerp(to: quat, weight: float) quat", .doc = "The rotation `weight` of the way to `to`, along the shortest arc: 0 is this one, 1 is `to`." },
+    .{ .name = "rotate", .sig = "rotate(v: vec3) vec3", .doc = "`v` turned by this rotation: the same as `q * v`." },
+    .{ .name = "angle", .sig = "angle() float", .doc = "How far it turns, in radians." },
+    .{ .name = "axis", .sig = "axis() vec3", .doc = "What it turns about." },
+    .{ .name = "angle_to", .sig = "angle_to(other: quat) float", .doc = "The smallest angle between the two orientations, in radians." },
+};
+
 pub const color = [_]Entry{
     .{ .name = "lerp", .sig = "lerp(to: color, weight: float) color", .doc = "The colour `weight` of the way to `to`, alpha too: 0 is this one, 1 is `to`." },
     .{ .name = "darkened", .sig = "darkened(amount: float) color", .doc = "Red, green and blue `amount` of the way to black." },
@@ -176,6 +190,7 @@ pub const property = [_]Entry{
     .{ .name = "x", .sig = "x: float", .doc = "The first part." },
     .{ .name = "y", .sig = "y: float", .doc = "The second part." },
     .{ .name = "z", .sig = "z: float", .doc = "The third part." },
+    .{ .name = "w", .sig = "w: float", .doc = "A rotation's fourth part." },
     .{ .name = "r", .sig = "r: float", .doc = "How red, from 0 to 1." },
     .{ .name = "g", .sig = "g: float", .doc = "How green, from 0 to 1." },
     .{ .name = "b", .sig = "b: float", .doc = "How blue, from 0 to 1." },
@@ -285,6 +300,7 @@ pub const types = [_]Entry{
     .{ .name = "vec2", .sig = "vec2", .doc = "Two floats, `x` and `y`: a value, copied when assigned." },
     .{ .name = "vec3", .sig = "vec3", .doc = "Three floats, `x`, `y` and `z`: a value, copied when assigned." },
     .{ .name = "color", .sig = "color", .doc = "A colour: `r`, `g`, `b` and `a`, each from 0 to 1." },
+    .{ .name = "quat", .sig = "quat", .doc = "A rotation in 3D: `x`, `y`, `z` and `w`. `a * b` turns by `b`, then `a`; `q * v` turns a `vec3`." },
     .{ .name = "error", .sig = "error", .doc = "An error value: `error.NotFound`, or `error.NotFound(\"why\")` with a message." },
     .{ .name = "task", .sig = "task", .doc = "What calling a coroutine without `await` gives: it runs on its own, and can be awaited for its result." },
     .{ .name = "signal", .sig = "signal", .doc = "A signal of an instance: connect functions to it, emit it, or `await` it." },

@@ -192,7 +192,7 @@ pub const Panic = struct {
     }
 };
 
-pub const BuiltinType = enum { string, list, map, vec2, vec3, color, signal, task, @"error", int, float, bool, enum_value, enum_type };
+pub const BuiltinType = enum { string, list, map, vec2, vec3, color, quat, signal, task, @"error", int, float, bool, enum_value, enum_type };
 
 gpa: Allocator,
 options: Options,
@@ -351,6 +351,7 @@ pub const disconnectSignal = api.disconnectSignal;
 pub const emitSignal = api.emitSignal;
 pub const newSignal = api.newSignal;
 pub const newColor = api.newColor;
+pub const newQuat = api.newQuat;
 pub const newList = api.newList;
 pub const newMap = api.newMap;
 pub const emitSignalValue = api.emitSignalValue;
@@ -370,6 +371,7 @@ pub const Names = struct {
     x: *object.String,
     y: *object.String,
     z: *object.String,
+    w: *object.String,
     r: *object.String,
     g: *object.String,
     b: *object.String,

@@ -84,6 +84,7 @@ test {
     _ = @import("vm/heap.zig");
     _ = @import("vm/strings.zig");
     _ = @import("vm/format.zig");
+    _ = @import("lib/quat.zig");
     _ = @import("compile/scan.zig");
     _ = @import("run_test.zig");
     _ = @import("reload_test.zig");

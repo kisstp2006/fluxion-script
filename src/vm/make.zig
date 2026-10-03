@@ -140,3 +140,9 @@ pub fn color(vm: *Vm, rgba: [4]f32) Allocator.Error!Value {
     c.* = .{ .obj = c.obj, .rgba = rgba };
     return .fromObj(.color, &c.obj);
 }
+
+pub fn quat(vm: *Vm, xyzw: [4]f32) Allocator.Error!Value {
+    const q = try vm.alloc(object.Quat, .quat, 0);
+    q.* = .{ .obj = q.obj, .xyzw = xyzw };
+    return .fromObj(.quat, &q.obj);
+}

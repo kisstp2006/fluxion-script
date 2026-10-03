@@ -175,6 +175,7 @@ fn traverse(vm: *Vm, o: *Obj) usize {
             return @sizeOf(object.ErrorValue);
         },
         .color => return @sizeOf(object.Color),
+        .quat => return @sizeOf(object.Quat),
         .handle => {
             const hd = object.Handle.from(o);
             h.markValue(hd.owner);
@@ -409,6 +410,7 @@ pub fn free(vm: *Vm, o: *Obj) void {
         },
         .error_value => release(vm, object.ErrorValue.from(o), 0),
         .color => release(vm, object.Color.from(o), 0),
+        .quat => release(vm, object.Quat.from(o), 0),
         .handle => {
             const h = object.Handle.from(o);
             if (h.owned) h.value.destroy(gpa);

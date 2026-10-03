@@ -60,6 +60,15 @@ pub fn value(w: *Writer, v: Value, quoted: bool, depth: u32) Writer.Error!void {
             try component(w, xyz[2]);
             try w.writeByte(')');
         },
+        .quat => {
+            const q = v.as(object.Quat).xyzw;
+            try w.writeAll("quat(");
+            for (q, 0..) |x, i| {
+                if (i > 0) try w.writeAll(", ");
+                try component(w, x);
+            }
+            try w.writeByte(')');
+        },
         .color => {
             const c = v.as(object.Color).rgba;
             try w.writeAll("color(");

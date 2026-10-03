@@ -149,6 +149,14 @@ pub fn methodIn(pool: *types.Pool, receiver: Type, name: []const u8, args: []con
             if (eq(u8, name, "inverted")) return try shape(pool, &.{}, .color);
             if (eq(u8, name, "hex")) return try shape(pool, &.{.bool}, .string);
         },
+        .quat => {
+            if (eq(u8, name, "euler") or eq(u8, name, "axis")) return try shape(pool, &.{}, .vec3);
+            if (eq(u8, name, "inverse") or eq(u8, name, "normalized")) return try shape(pool, &.{}, .quat);
+            if (eq(u8, name, "length") or eq(u8, name, "angle")) return try shape(pool, &.{}, .float);
+            if (eq(u8, name, "dot") or eq(u8, name, "angle_to")) return try shape(pool, &.{.quat}, .float);
+            if (eq(u8, name, "slerp")) return try shape(pool, &.{ .quat, .float }, .quat);
+            if (eq(u8, name, "rotate")) return try shape(pool, &.{.vec3}, .vec3);
+        },
         .signal => {
             if (eq(u8, name, "emit")) {
                 const any = try pool.allocator().alloc(Type, @max(args.len, 16));
@@ -175,6 +183,7 @@ pub fn preludeReturn(c: *Compiler, name: []const u8, args: []const Type) Error!T
     if (eq(u8, name, "vec2")) return .vec2;
     if (eq(u8, name, "vec3")) return .vec3;
     if (eq(u8, name, "color") or eq(u8, name, "hsv")) return .color;
+    if (eq(u8, name, "quat")) return .quat;
     if (eq(u8, name, "wait")) return .float;
     if (eq(u8, name, "range")) return c.pool.list(.int);
     if (eq(u8, name, "abs")) return if (args.len > 0 and !Compiler.dynamic(args[0])) args[0] else .any;

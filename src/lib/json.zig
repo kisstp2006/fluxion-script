@@ -102,6 +102,11 @@ fn emit(w: *fjson.Writer, v: Value, depth: u32, what: *[]const u8) Failure!void 
             for (v.as(object.Color).rgba) |c| try w.writeFloat(c);
             try w.endArray();
         },
+        .quat => {
+            try w.beginArray();
+            for (v.as(object.Quat).xyzw) |c| try w.writeFloat(c);
+            try w.endArray();
+        },
         .enum_value => try w.writeString(object.EnumType.from(v.obj()).members[v.extra].bytes()),
         .list => {
             try w.beginArray();

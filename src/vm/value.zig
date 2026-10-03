@@ -34,6 +34,7 @@ pub const Tag = enum(u32) {
     color,
     handle,
     range,
+    quat,
     _,
 
     pub fn isObject(tag: Tag) bool {

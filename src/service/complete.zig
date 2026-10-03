@@ -326,6 +326,7 @@ const Adder = struct {
             .vec2 => &.{ "x", "y" },
             .vec3 => &.{ "x", "y", "z" },
             .color => &.{ "r", "g", "b", "a" },
+            .quat => &.{ "x", "y", "z", "w" },
             .@"error" => &.{ "name", "message" },
             else => if (p.listOf(t) != null or p.mapOf(t) != null) &.{"len"} else &.{},
         };

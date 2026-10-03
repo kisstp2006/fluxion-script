@@ -238,6 +238,7 @@ pub fn methodTable(p: *types.Pool, t: Type) []const docs.Entry {
         .string => &docs.string,
         .vec2, .vec3 => &docs.vector,
         .color => &docs.color,
+        .quat => &docs.quat,
         .signal => &docs.signal,
         else => &.{},
     };

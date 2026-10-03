@@ -69,6 +69,7 @@ function may call one declared below it.
 | `string` | UTF-8 text, never changed in place | `"hi\n"`, `f"x is {x}"`, multi-line below |
 | `vec2`, `vec3` | two or three 32-bit floats, held in the value | `vec2(1, 2)`, `vec3(1, 2, 3)` |
 | `color` | four floats, red green blue alpha | `color("#FF8000")`, `color(1, 0.5, 0)`, `color("royalblue")`, `hsv(30, 1, 1)` |
+| `quat` | a rotation in 3D: four floats, `x y z w` | `quat()`, `quat(vec3(0, 1.5, 0))`, `quat(axis, angle)` |
 | `[T]` | a list of `T` | `[1, 2, 3]`, `[]` |
 | `[K: V]` | a map from `K` to `V`, in the order keys were added | `{"hp": 10}`, `{}` |
 | `?T` | a `T`, or null | |
@@ -441,7 +442,7 @@ Lists and maps are shared like instances. A typed list only takes its
 type: `var names: [string] = [];` refuses `names.push(3)` at compile time,
 and a value of type `any` pushed into it is checked as it goes in.
 
-## Vectors and colours
+## Vectors, rotations and colours
 
 `vec2` and `vec3` are values, like numbers: assigning one copies it, and
 `+ - *` work on them, with a float too.
@@ -469,6 +470,23 @@ hue in degrees round the wheel (0 red, 120 green, 240 blue). Its parts are
 `.r .g .b .a`, floats from 0 to 1. Its methods give a new colour: `lerp(to,
 weight)`, `darkened(amount)`, `lightened(amount)`, `inverted()`,
 `with_alpha(a)`; and `hex()` is `"#rrggbbaa"` (`hex(false)` `"#rrggbb"`).
+
+A `quat` is a rotation in 3D. `quat()` turns nothing; `quat(euler)` takes
+pitch, yaw and roll in radians as a `vec3`, applied roll first, then pitch,
+then yaw; `quat(axis, angle)` turns `angle` radians about a `vec3`, and
+`quat(x, y, z, w)` is the four numbers. `a * b` turns by `b` and then by `a`,
+and `q * v` turns a `vec3`. Its parts are `.x .y .z .w`; its methods give new
+values: `euler()`, `inverse()`, `normalized()`, `slerp(to, weight)` along
+the shortest arc, `rotate(v)`, `angle()`, `axis()`, `angle_to(other)`,
+`dot(other)`, `length()`. Positive angles turn anticlockwise seen from the
+far end of the axis.
+
+```zig
+const turn = quat(vec3(0, 1, 0), math.pi / 2);
+print(turn * vec3(0, 0, -1)); // (-1.0, 0.0, 0.0), near enough
+var aim = quat();
+aim = aim.slerp(turn, 0.1);
+```
 
 ## Tasks and `await`
 
@@ -577,7 +595,7 @@ Everywhere, with nothing imported:
 | `str(x)` `typeof(x)` | text |
 | `int(x)` | an int from a float (dropping the fraction), a bool, an enum member, or text. From text - or from a value that may be text - it gives `!int`, since the text may be no number. |
 | `float(x)` | the same, to a float |
-| `vec2(...)` `vec3(...)` `color(...)` `hsv(...)` | make one |
+| `vec2(...)` `vec3(...)` `quat(...)` `color(...)` `hsv(...)` | make one |
 | `wait(seconds)` | something to `await` |
 | `min(...)` `max(...)` | of their arguments, or of one list |
 | `abs(x)` `clamp(x, lo, hi)` | numbers and vectors |
