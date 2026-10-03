@@ -21,8 +21,8 @@
             .hash = "fluxion_json-0.1.0-sFlLPa1yBQCYVZD-64nMnRtnhjH6P3xbnq1ftDyIs1DB",
         },
         .fluxion_reflect = .{
-            .url = "git+https://github.com/kisstp2006/fluxion-reflect#2f48e6ef8e44a55039cdbd8cbbd3521f344cb8f8",
-            .hash = "fluxion_reflect-0.1.0-Aw2l_2DGBQAt1GqJ0oVM7f-9xEwagzceO1A2F4mfDKVI",
+            .url = "git+https://github.com/kisstp2006/fluxion-reflect#b6a24be19abff0e5cf40663817e42c414eb829e4",
+            .hash = "fluxion_reflect-0.1.0-Aw2l_z_JBQDG9NFg9VQU7V0h-X0Y2fJ0VERJnSFNMS2m",
         },
 
         // Flux in its code editor, `fluxion_script_code`. Lazy, and asked for
