@@ -104,6 +104,9 @@ awaiting: bool = false,
 /// The last call compiled ran a coroutine in this task, so what `await`
 /// gets is that coroutine's result.
 awaited_coroutine: bool = false,
+/// What the signal the last member read gives its functions, when it says:
+/// the parameters a lambda given to its `connect` or `once` has.
+said: ?*const types.Signature = null,
 fast_entry: u32 = 0,
 
 pub fn init(comp: *Compiler, parent: ?*Func, name: []const u8) Func {

@@ -24,7 +24,13 @@ const reflect = @import("fluxion_reflect");
 
 const Known = union(enum) {
     signature: *const types.Signature,
-    method: struct { receiver: Type, name: []const u8 },
+    method: struct {
+        receiver: Type,
+        name: []const u8,
+        /// A signal's, when it says what it gives: its `connect` and `once`
+        /// hand a lambda's parameters their types.
+        said: ?*const types.Signature = null,
+    },
     prelude: struct { name: []const u8, native: *object.Native },
     /// A function of a module built in: `math.sqrt`, `hash.md5`.
     native: struct { module: []const u8, name: []const u8 },
@@ -55,7 +61,9 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
 
     if (cl.callee.kind == .field and !isStatic(f, cl.callee)) {
         const fl = cl.callee.kind.field;
+        f.said = null;
         const obj = try control.unlessError(f, try expr.compile(f, fl.target, null, .unknown), fl.target.span);
+        const said = if (obj.type == .signal) f.said else null;
         const name = fl.name.text;
         const rec = c.recording();
         if (rec) |r| if (r.isPlaceholder(name)) {
@@ -130,7 +138,7 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
                 .help("unwrap it first: `x.?.{s}(...)` or `if (x) |v| v.{s}(...)`", .{ name, name });
         } else if (!Compiler.dynamic(obj.type)) {
             if (try builtins.method(c, obj.type, name, &.{}) != null) {
-                known = .{ .method = .{ .receiver = obj.type, .name = name } };
+                known = .{ .method = .{ .receiver = obj.type, .name = name, .said = said } };
                 if (rec) |r| try r.use(.{ .span = fl.name.span, .kind = .builtin_method, .type = .any, .owner = obj.type });
             } else {
                 const h = try c.err(fl.name.span, "{s} has no method `{s}`", .{ c.typeName(obj.type), name });
@@ -180,6 +188,14 @@ pub fn call(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
         return .{ .reg = d, .type = ret, .temp = false };
     }
     return .{ .reg = base, .type = ret, .temp = true };
+}
+
+/// The type of a function a signal saying `said` is given: its arguments,
+/// and whatever it gives back, which no one hears.
+fn handlerOf(c: *Compiler, said: *const types.Signature) Error!Type {
+    const sig = try c.pool.allocator().create(types.Signature);
+    sig.* = .{ .params = said.params, .ret = .unknown };
+    return c.pool.function(sig);
 }
 
 /// A type named as an argument of a host's method: the host's type it
@@ -242,7 +258,10 @@ fn arguments(f: *Func, e: *const ast.Expr, known: Known, self_given: bool, await
             for (args, 0..) |a, i| {
                 const r = try f.alloc();
                 const want: Type = if (i < shape.params.len) shape.params[i] else .unknown;
-                const v = if (want == .unknown) try expr.compile(f, a, r, .unknown) else try expr.typedInto(f, a, r, want, "the argument");
+                const handed = i == 0 and a.kind == .lambda and (std.mem.eql(u8, m.name, "connect") or std.mem.eql(u8, m.name, "once"));
+                const v = if (handed and m.said != null)
+                    try expr.compile(f, a, r, try handlerOf(c, m.said.?))
+                else if (want == .unknown) try expr.compile(f, a, r, .unknown) else try expr.typedInto(f, a, r, want, "the argument");
                 if (i < got.len) got[i] = v.type;
             }
             const final = try builtins.method(c, m.receiver, m.name, got[0..@min(args.len, got.len)]);

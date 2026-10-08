@@ -44,6 +44,7 @@ pub const Alias = @import("reflect.zig").Alias;
 pub const GivesErrors = @import("reflect.zig").GivesErrors;
 /// What a method that gives back a `flux.Value` gives: see `reflect.zig`.
 pub const Returns = @import("reflect.zig").Returns;
+pub const Takes = @import("reflect.zig").Takes;
 /// What awaiting the task a method gives gives: see `reflect.zig`.
 pub const Pending = @import("reflect.zig").Pending;
 pub const Hook = Vm.Hook;

@@ -329,7 +329,7 @@ pub fn signature(vm: *Vm, arena: Allocator, found: Method) Allocator.Error!*type
         const is_type = p.type.kind == .type;
         try shown.append(arena, .{
             .name = if (name.len > 0) name else try std.fmt.allocPrint(arena, "arg{d}", .{shown.items.len + 1}),
-            .type = if (is_type) .any else try takenType(vm, p.type),
+            .type = if (is_type) .any else if (p.type.is(Value)) try taken(vm, m, name) else try takenType(vm, p.type),
             .has_default = has_default,
             .default_text = if (has_default) try defaultText(arena, defaults[i - first_default]) else null,
             .type_text = if (is_type) "type" else null,
@@ -344,6 +344,16 @@ pub fn signature(vm: *Vm, arena: Allocator, found: Method) Allocator.Error!*type
         .coroutine = pending != null,
     };
     return sig;
+}
+
+/// What a `flux.Value` parameter named `name` takes: what the method says
+/// with `Takes`, or anything.
+fn taken(vm: *Vm, m: *const reflect.Method, name: []const u8) Allocator.Error!Type {
+    for (m.attributes.slice()) |a| if (a.as(bridge.Takes)) |t| if (std.mem.eql(u8, t.param, name)) return switch (t.type) {
+        .type => |x| typeOf(vm, x),
+        .builtin => |b| builtin(b),
+    };
+    return .any;
 }
 
 /// A default as it would be written: `""`, `1.0`, `false`, `.linear`.
@@ -366,10 +376,30 @@ fn defaultText(arena: Allocator, d: reflect.attr.Defaults.Default) Allocator.Err
     return "...";
 }
 
+/// What a signal the host declares gives the functions connected to it,
+/// when it says: null for a member that is not one, or does not.
+pub fn signalSignature(vm: *Vm, arena: Allocator, d: *const Vm.DeclaredMember) Allocator.Error!?*const types.Signature {
+    if (d.type != .signal) return null;
+    const args = d.args orelse return null;
+    const params = try arena.alloc(types.Param, args.fields().len);
+    for (args.fields(), params) |field, *p| p.* = .{ .name = field.name.slice(), .type = try typeOf(vm, field.type), .has_default = false };
+    const sig = try arena.create(types.Signature);
+    sig.* = .{ .params = params, .ret = .void };
+    return sig;
+}
+
 /// How a member is shown: `fn Sprite.play(name: string = "") bool`,
-/// `Sprite.frame: int`.
+/// `Sprite.frame: int`, `signal Area2D.body_entered(body: Entity)`.
 pub fn detail(vm: *Vm, arena: Allocator, t: *const reflect.Type, name: []const u8, found: Member) Allocator.Error![]const u8 {
     var out: Writer.Allocating = .init(arena);
+    if (found == .declared) if (try signalSignature(vm, arena, found.declared)) |sig| {
+        (blk: {
+            out.writer.print("signal {s}.{s}(", .{ nameOf(t), name }) catch |e| break :blk e;
+            for (sig.params, 0..) |param, i| out.writer.print("{s}{s}: {s}", .{ if (i > 0) ", " else "", param.name, pool(vm).name(param.type) }) catch |e| break :blk e;
+            out.writer.writeByte(')') catch |e| break :blk e;
+        }) catch return error.OutOfMemory;
+        return out.written();
+    };
     (switch (found) {
         .method => |m| writeSignature(pool(vm), &out.writer, nameOf(t), name, try signature(vm, arena, m)),
         .field, .declared => out.writer.print("{s}.{s}: {s}", .{ nameOf(t), name, pool(vm).name(try memberType(vm, found)) }),
@@ -394,7 +424,7 @@ pub fn docOf(vm: *const Vm, found: Member) ?[]const u8 {
     switch (found) {
         .field => |f| return attributeDoc(f.field) orelse listed(vm, f.owner, f.field.name.slice()),
         .method => |m| return attributeDoc(m.method) orelse listed(vm, m.owner, m.method.name.slice()),
-        .declared => |d| return d.doc,
+        .declared => |d| return d.doc orelse listed(vm, d.of, d.name),
     }
 }
 
@@ -426,7 +456,8 @@ pub fn typeDoc(vm: *const Vm, key: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Whether a field is kept out of a person's view: `attr.Hidden`.
+/// Whether a field is kept out of a person's view: `attr.Hidden`, or a
+/// packed struct's padding, `_padding: u1 = 0`.
 pub fn hidden(f: *const reflect.Field) bool {
-    return f.attribute(reflect.attr.Hidden) != null;
+    return f.attribute(reflect.attr.Hidden) != null or std.mem.startsWith(u8, f.name.slice(), "_");
 }

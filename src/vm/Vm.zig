@@ -125,6 +125,10 @@ pub const DeclaredMember = struct {
     /// Whether a script may write it, through `Options.host_set_member`.
     writable: bool = false,
     doc: ?[]const u8 = null,
+    /// A signal's: the struct of what it says, its fields the arguments'
+    /// names and types. What a function connected to it is given, and so
+    /// what a lambda's parameters are, untyped: `fn(body) { body.$ }`.
+    args: ?*const reflect.Type = null,
 };
 
 /// The methods of one of the host's types, `by`, whose first argument is a

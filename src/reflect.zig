@@ -645,6 +645,23 @@ pub const Returns = union(enum) {
     }
 };
 
+/// Said of a method's `flux.Value` parameter, by its name, that takes
+/// values of one type only: what the compiler checks a call by and an
+/// editor shows, where it would say `any`.
+/// `.blit = .{ attr.Params{ .names = &.{ "source", "x", "y" } }, flux.Takes.of("source", ImageRef) }`.
+pub const Takes = struct {
+    param: []const u8,
+    type: Returns,
+
+    pub fn of(param: []const u8, comptime T: type) Takes {
+        return .{ .param = param, .type = .of(T) };
+    }
+
+    pub fn builtin(param: []const u8, b: Vm.BuiltinType) Takes {
+        return .{ .param = param, .type = .{ .builtin = b } };
+    }
+};
+
 /// Said of a method that gives a task the host ends later
 /// (`Vm.newHostTask`): what awaiting it gives, and whether that may be an
 /// error to catch. `.get = .{ flux.Pending.of(Response, true) }` makes

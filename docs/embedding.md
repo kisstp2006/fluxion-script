@@ -342,7 +342,10 @@ method gives them defaults (`attr.defaults`) - and of what types.
   null: `entity.get(Sprite)` is a Sprite, `entity.find(Sprite)` a
   `?Sprite`. One that makes what it gives - a string, a handle the
   collector owns - says of what type with `flux.Returns.of(T)`, or
-  `flux.Returns{ .builtin = .signal }`.
+  `flux.Returns{ .builtin = .signal }`. A `flux.Value` parameter that takes
+  one kind of value only says which with `flux.Takes.of("image", ImageRef)`
+  or `flux.Takes.builtin("task", .task)`, by its name: the compiler checks a
+  call by it, and an editor shows it rather than `any`.
 - **An error** a method returns stops the script, with the error's name,
   as a mistake in the script would; the errors of a method marked
   `flux.GivesErrors` - or of every method of a type marked so, in its
@@ -360,7 +363,12 @@ method gives them defaults (`attr.defaults`) - and of what types.
 - **Members its type does not list** - a component's signal, the words it
   keeps beside it - are `vm.declareMember(.{ .of, .name, .type, .writable,
   .doc })`, and the host finds them as the script runs, through
-  `Vm.Options.host_member` and `host_set_member`. A type whose values have
+  `Vm.Options.host_member` and `host_set_member`. A signal's `.args` is the
+  struct of what it says, `struct { body: Entity }`: an editor shows it,
+  `signal Area.body_entered(body: Entity)`, and a lambda given to its
+  `connect` or `once` has those types for the parameters it leaves untyped
+  - as a lambda given to a script's own signal has its declaration's. A
+  member without a `.doc` is said of by `Vm.Options.docs`, as a field is. A type whose values have
   members only the host can know, named by data - a material's numbers,
   named by its shader - is `vm.declareOpen(t)`: another name on one of them
   is `any` rather than a mistake.

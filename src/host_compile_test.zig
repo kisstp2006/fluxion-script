@@ -50,7 +50,14 @@ const Deck = struct {
         .seatOf = .{},
         .takeSeat = .{},
         .total = .{reflect.attr.Params{ .names = &.{"values"} }},
+        .stack = .{ reflect.attr.Params{ .names = &.{"top"} }, bridge.Takes.of("top", Card) },
     };
+
+    /// A card a script gives, as it gave it.
+    pub fn stack(self: *Deck, top: Value) void {
+        _ = top;
+        self.count += 1;
+    }
 
     /// The numbers of a list a script gives, added up.
     pub fn total(self: *const Deck, values: []const i32) i32 {
@@ -218,10 +225,15 @@ fn declare(vm: *Vm) !void {
     try vm.declareAnnotation(.{ .name = "range", .sig = "@range(min, max)", .doc = "The numbers it may be." });
     try vm.declareMember(.{ .of = reflect.typeOf(Deck), .name = "emptied", .type = .signal, .doc = "Said when the last card goes." });
     try vm.declareMember(.{ .of = reflect.typeOf(Deck), .name = "title", .type = .string, .writable = true });
+    try vm.declareMember(.{ .of = reflect.typeOf(Deck), .name = "dealt", .type = .signal, .args = reflect.typeOf(Dealt) });
 }
+
+/// What `Deck.dealt` says.
+const Dealt = struct { card: Card, count: i32 };
 
 fn setup(_: ?*anyopaque, vm: *Vm) anyerror!void {
     try declare(vm);
+    vm.options.docs = &.{.{ .key = "Deck.dealt", .text = "Said for each card dealt." }};
     try vm.declareGlobal("deck", reflect.typeOf(Deck), "The deck on the table.");
     try vm.declareHostMemberOf("held", reflect.typeOf(Deck), "The deck this one holds.");
     try vm.extend(reflect.typeOf(Deck), reflect.typeOf(Table), .null);
@@ -714,6 +726,37 @@ test "an editor is offered a host's members, and shown its methods' signatures a
     const on_speed = (try analysis.hover(a, @intCast(std.mem.indexOf(u8, program, "speed").? + 1))).?;
     try testing.expectEqualStrings("Deck.speed: float", on_speed.code);
     try testing.expectEqualStrings("How fast it plays", on_speed.doc.?);
+}
+
+test "a signal's arguments, where it says them, are a lambda's parameters given to its connect: shown, offered and checked" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // A value of the host's said to be of one type.
+    try testing.expectEqualStrings("fn Deck.stack(top: Card)", itemNamed(try completions(a, "fn f() {\n    deck.$\n}\n"), "stack").?.detail);
+    try expectMessages(a, "fn f() {\n    deck.stack(deck.card(1));\n    deck.stack(3);\n}\n", &.{"the argument must be Card, not int"});
+
+    const dealt = itemNamed(try completions(a, "fn f() {\n    deck.$\n}\n"), "dealt").?;
+    try testing.expectEqualStrings("signal Deck.dealt(card: Card, count: int)", dealt.detail);
+    // Said of it where the host's list of what its members are says it.
+    try testing.expectEqualStrings("Said for each card dealt.", dealt.doc.?);
+    // The host's signal, and a script's own.
+    try testing.expect(itemNamed(try completions(a, "fn f() {\n    deck.dealt.connect(fn(card, n) { card.$ });\n}\n"), "flip") != null);
+    try testing.expect(itemNamed(try completions(a, "fn f() {\n    deck.dealt.once(fn(c) { c.$ });\n}\n"), "flip") != null);
+    try testing.expect(itemNamed(try completions(a, "struct P {\n    signal moved(to: vec2);\n    fn go(self) {\n        self.moved.connect(fn(to) { to.$ });\n    }\n}\n"), "x") != null);
+    try expectMessages(a,
+        \\fn f() {
+        \\    deck.dealt.connect(fn(card, n) {
+        \\        card.flip();
+        \\        const _name: string = n;
+        \\    });
+        \\    deck.dealt.connect(fn(card: Card) { card.flip(); });
+        \\    deck.dealt.connect(fn() { print("dealt"); });
+        \\    deck.dealt.connect(fn(card, n, more) { print(more); });
+        \\    deck.emptied.connect(fn(why) { print(why.anything); });
+        \\}
+    , &.{"the variable must be string, not int"});
 }
 
 test "what a name is on a host type is found once, and found again once an extension is added" {

@@ -209,6 +209,7 @@ pub fn field(f: *Func, e: *const ast.Expr, dst: ?u8) Error!Operand {
             if (rec) |r| try r.member(c, fl.name.span, s.self_type, .{ .field = fd });
             const out = try binary.result(f, dst, mark);
             try f.abc(.getfield, out, t.reg, @intCast(fd.slot));
+            if (fd.is_signal) f.said = fd.signal;
             return .{ .reg = out, .type = fd.type, .temp = dst == null };
         }
         if (s.method(name)) |m| {
@@ -281,6 +282,7 @@ fn hostMember(f: *Func, t: Operand, ht: *const reflect.Type, name: ast.Name, dst
     };
     const ty = try host.memberType(c.vm, found);
     if (c.recording()) |r| try useHost(c, r, name.span, ht, found, ty);
+    if (found == .declared) f.said = try host.signalSignature(c.vm, c.pool.allocator(), found.declared);
     return .{ .reg = out, .type = ty, .temp = dst == null };
 }
 
