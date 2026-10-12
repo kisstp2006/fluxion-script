@@ -690,6 +690,18 @@ test "an editor is offered a host's members, and shown its methods' signatures a
     try testing.expect(itemNamed(try completions(a, "fn f(d: $) {}\n"), "Deck") != null);
     const given = try completions(a, "fn f() {\n    deck.get(Ca$)\n}\n");
     try testing.expectEqualStrings("struct", @tagName((itemNamed(given, "Card") orelse return error.NotOffered).kind));
+    // Only the host's types go where a call takes one by name: not its
+    // enums, nor what else is in scope there.
+    try testing.expect(itemNamed(given, "Deck") != null);
+    for ([_][]const u8{ "Mode", "deck", "print", "f", "return" }) |other| try testing.expect(itemNamed(given, other) == null);
+    // Where a call takes a member of an enum, its members come first, with
+    // the dot they are written with there; the rest is offered after.
+    const wanted = try completions(a, "fn f() {\n    deck.setMode(lo$)\n}\n");
+    try testing.expectEqual(@as(u8, 0), (itemNamed(wanted, ".loop") orelse return error.NotOffered).rank);
+    try testing.expect(itemNamed(wanted, ".stop") != null);
+    try testing.expect(itemNamed(wanted, "deck") != null);
+    // And nowhere else: a name where no enum is wanted has none.
+    try testing.expect(itemNamed(try completions(a, "fn f() {\n    deck.dealOut(lo$)\n}\n"), ".loop") == null);
     try testing.expect(itemNamed(try completions(a, "fn f() {\n    const m = Mo$\n}\n"), "Mode") != null);
 
     // A method the host calls, whole, where a struct's method is written;

@@ -127,6 +127,9 @@ pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []co
     var add: Adder = .{ .a = a, .arena = arena, .list = &list };
     if (a.recorder.completion) |c| switch (c) {
         .scope => |items| {
+            // Where a member of an enum is wanted, its members before
+            // everything else, as the place takes them: `.windowed`.
+            try add.wantedMembers(a.recorder.wanted);
             for (items) |it| try add.item(it, if (it.local) 0 else if (it.kind == .builtin_function) 2 else 1);
             try add.keywords();
             if (ctx.kind == .name and ctx.end > ctx.start) try elsewhere(gpa, arena, name, source, options, &list);
@@ -139,6 +142,7 @@ pub fn complete(gpa: Allocator, arena: Allocator, name: []const u8, source: []co
             for (items) |it| try add.item(it, 1);
             for (docs.types) |e| try add.push(e.name, .builtin_type, "", e.doc, 2);
         },
+        .host_types => |items| for (items) |it| try add.item(it, 0),
         .module_types => |t| try add.moduleTypes(t),
     } else if (ctx.kind == .name) {
         // The compiler never got to the cursor: the code around it does not
@@ -386,6 +390,17 @@ const Adder = struct {
         for (e.members, 0..) |n, i| {
             const at: ?diag.Location = if (i < e.spans.len) .{ .file = e.file, .span = e.spans[i] } else null;
             try ad.declared(n, .enum_member, e.self_type, at, 0);
+        }
+    }
+
+    /// The members of the enum a place wants, each with the dot it is
+    /// written with there. Nothing where the place wants something else.
+    fn wantedMembers(ad: *Adder, wanted: Type) Allocator.Error!void {
+        const p = ad.a.pool();
+        const e = p.enumOf(p.isOptional(wanted) orelse wanted) orelse return;
+        for (e.members, 0..) |n, i| {
+            const at: ?diag.Location = if (i < e.spans.len) .{ .file = e.file, .span = e.spans[i] } else null;
+            try ad.declared(try std.fmt.allocPrint(ad.arena, ".{s}", .{n}), .enum_member, e.self_type, at, 0);
         }
     }
 

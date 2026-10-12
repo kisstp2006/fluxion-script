@@ -120,7 +120,12 @@ pub fn compile(f: *Func, e: *const ast.Expr, dst: ?u8, expected: Type) Error!Ope
         .fstring => |parts| return fstring(f, parts, dst),
         .enum_literal => |n| return enumLiteral(f, n, dst, expected, e.span),
         .error_literal => |x| return errorLiteral(f, x.name, x.message, dst),
-        .ident => |name| return names.read(f, name, e.span, dst),
+        .ident => |name| {
+            if (c.recording()) |r| if (r.isPlaceholder(name)) {
+                r.wanted = expected;
+            };
+            return names.read(f, name, e.span, dst);
+        },
         .self => return names.read(f, "self", e.span, dst),
         .list => |items| return list(f, items, dst, expected),
         .map => |entries| return mapLiteral(f, entries, dst, expected),

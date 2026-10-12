@@ -240,6 +240,8 @@ fn arguments(f: *Func, e: *const ast.Expr, known: Known, self_given: bool, await
             for (args, 0..) |a, i| {
                 const r = try f.alloc();
                 if (i < params.len and params[i].type_arg) {
+                    // A type being named: the host's types are what goes.
+                    if (c.recording()) |rec| if (a.kind == .ident and rec.isPlaceholder(a.kind.ident)) try rec.hostTypes(c);
                     const v = try expr.compile(f, a, r, .unknown);
                     if (try typeArgument(f, a, v, params[i])) |t| given = t;
                 } else {

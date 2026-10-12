@@ -109,6 +109,9 @@ pub const Completion = union(enum) {
     fields: struct { of: Type, given: []const []const u8 },
     /// Where a type is written: the module's types and imports.
     types: []const Item,
+    /// Where a call of the host's takes one of its types by name - `Sprite`
+    /// in `entity.get(Sprite)`: the host's types, and nothing else.
+    host_types: []const Item,
     /// `module.Name` where a type is written.
     module_types: Type,
 };
@@ -135,6 +138,10 @@ uses: std.ArrayList(Use) = .empty,
 decls: std.ArrayList(Decl) = .empty,
 calls: std.ArrayList(Call) = .empty,
 completion: ?Completion = null,
+/// What the place the placeholder stands in wants, where it is a name on
+/// its own: a call's parameter, what a variable is. Its members are
+/// offered first where it is an enum.
+wanted: Type = .unknown,
 
 pub fn init(gpa: Allocator, completing: bool) Recorder {
     return .{ .gpa = gpa, .arena_state = .init(gpa), .completing = completing };
@@ -331,6 +338,20 @@ pub fn scope(r: *Recorder, f: *Func) Allocator.Error!void {
         try items.append(a, .{ .name = name, .kind = if (callable or !given) .builtin_function else .constant, .type = .any });
     }
     r.completion = .{ .scope = items.items };
+}
+
+/// The host's types a script may name where a call takes one: its structs,
+/// not the enums and unions a value is one of.
+pub fn hostTypes(r: *Recorder, c: *Compiler) Allocator.Error!void {
+    if (r.completion != null) return;
+    const a = r.arena();
+    var items: std.ArrayList(Item) = .empty;
+    for (c.vm.named_types.keys(), c.vm.named_types.values()) |name, held| {
+        if (held.kind != .@"struct") continue;
+        const t = (try @import("host.zig").named(c.vm, name)).?;
+        try items.append(a, .{ .name = name, .kind = .@"struct", .type = try c.pool.meta(t) });
+    }
+    r.completion = .{ .host_types = items.items };
 }
 
 pub fn members(r: *Recorder, t: Type) void {
